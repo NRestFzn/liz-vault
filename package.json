@@ -6,23 +6,26 @@
   "scripts": {
     "build:main": "tsc -p tsconfig.main.json",
     "build:renderer": "esbuild src/renderer/index.tsx --bundle --outfile=dist/renderer/bundle.js --loader:.tsx=tsx --loader:.ts=ts",
-    "build": "npm run build:main && npm run build:renderer",
+    "build:css": "tailwindcss -i src/renderer/tailwind.css -o dist/renderer/index.css",
+    "build": "npm run build:main && npm run build:renderer && npm run build:css",
     "watch:main": "tsc -p tsconfig.main.json -w",
     "watch:renderer": "esbuild src/renderer/index.tsx --bundle --outfile=dist/renderer/bundle.js --loader:.tsx=tsx --loader:.ts=ts --watch",
-    "dev": "npm run build && concurrently \"npm run watch:main\" \"npm run watch:renderer\" \"electron .\""
+    "watch:css": "tailwindcss -i src/renderer/tailwind.css -o dist/renderer/index.css --watch",
+    "dev": "npm run build && concurrently \"npm run watch:main\" \"npm run watch:renderer\" \"npm run watch:css\" \"electron .\""
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "better-sqlite3": "^13.0.3",
+    "better-sqlite3": "https://github.com/WiseLibs/better-sqlite3/archive/refs/tags/v12.12.0.tar.gz",
     "dotenv": "^17.4.2",
     "googleapis": "^174.0.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
     "@types/better-sqlite3": "^9.6.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
@@ -30,6 +33,7 @@
     "electron": "^43.3.0",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.1",
+    "tailwindcss": "^4.3.3",
     "ts-node": "^10.9.2",
     "typescript": "^7.0.2"
   }
