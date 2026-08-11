@@ -15,11 +15,11 @@ export const TransferQueue: React.FC = () => {
   const [transfers, setTransfers] = useState<Record<string, Transfer>>({});
 
   useEffect(() => {
-    const onUploadProgress = (_: any, data: { fileId: number, bytesUploaded: number, totalBytes: number }) => {
+    const onUploadProgress = (_: any, data: { fileId: number, fileName: string, bytesUploaded: number, totalBytes: number }) => {
       const progress = data.totalBytes > 0 ? (data.bytesUploaded / data.totalBytes) * 100 : 0;
       setTransfers(prev => ({
         ...prev,
-        [`upload-${data.fileId}`]: { ...prev[`upload-${data.fileId}`], id: `upload-${data.fileId}`, progress, type: 'upload' }
+        [`upload-${data.fileId}`]: { ...prev[`upload-${data.fileId}`], id: `upload-${data.fileId}`, fileName: data.fileName, progress, type: 'upload' }
       }));
     };
 
@@ -34,11 +34,11 @@ export const TransferQueue: React.FC = () => {
       }, 3000);
     };
 
-    const onDownloadProgress = (_: any, data: { fileId: number, bytesDownloaded: number, totalBytes: number }) => {
+    const onDownloadProgress = (_: any, data: { fileId: number, fileName: string, bytesDownloaded: number, totalBytes: number }) => {
       const progress = data.totalBytes > 0 ? (data.bytesDownloaded / data.totalBytes) * 100 : 0;
       setTransfers(prev => ({
         ...prev,
-        [`download-${data.fileId}`]: { ...prev[`download-${data.fileId}`], id: `download-${data.fileId}`, progress, type: 'download' }
+        [`download-${data.fileId}`]: { ...prev[`download-${data.fileId}`], id: `download-${data.fileId}`, fileName: data.fileName, progress, type: 'download' }
       }));
     };
 
@@ -70,7 +70,7 @@ export const TransferQueue: React.FC = () => {
   if (transferList.length === 0) return null;
 
   return (
-    <div className="transfer-queue">
+    <div className="fixed bottom-6 right-6 z-[1000] flex max-h-[400px] w-[340px] flex-col gap-2 overflow-y-auto">
       {transferList.map(t => (
         <ProgressItem
           key={t.id}
