@@ -41,5 +41,9 @@ yarn-error.log*
 # ========== Electron-specific ==========
 app/
 
+# ========== Graphify (local knowledge graph — not pushed) ==========
+graphify-out/
+src/graphify-out/
+
 # ========== Temp / Scratch ==========
 .freebuff/
