@@ -5,8 +5,10 @@ import { FolderRow } from '../components/FolderRow';
 import { FileRow } from '../components/FileRow';
 import { ViewToggle } from '../components/ViewToggle';
 import { ContextMenu } from '../components/ContextMenu';
+import { RenameModal } from '../components/RenameModal';
 import { ThumbnailImage } from '../components/ThumbnailImage';
 import { FileTypeIcon } from '../components/FileTypeIcon';
+import { splitFileName } from '../../shared/fileCategory';
 
 const { ipcRenderer } = window.require('electron');
 
@@ -57,6 +59,10 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<Set<number>>(new Set());
+  const [renameTarget, setRenameTarget] = useState<FileRowType | null>(null);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  // Duplicate-name warning (shown when the auto-rename setting is off).
+  const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
 
   const loadItems = useCallback(async () => {
     const res = await ipcRenderer.invoke('files:in-folder', { folderId });
@@ -111,14 +117,19 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
     const onUploadComplete = () => {
       loadItems();
     };
+    const onRenamed = (_: any, data: { file: FileRowType }) => {
+      setItems(prev => prev.map(f => (f.id === data.file.id ? data.file : f)));
+    };
 
     ipcRenderer.on('file:deleted', onDeleted);
     ipcRenderer.on('file:starred', onStarred);
+    ipcRenderer.on('file:renamed', onRenamed);
     ipcRenderer.on('upload:complete', onUploadComplete);
 
     return () => {
       ipcRenderer.removeListener('file:deleted', onDeleted);
       ipcRenderer.removeListener('file:starred', onStarred);
+      ipcRenderer.removeListener('file:renamed', onRenamed);
       ipcRenderer.removeListener('upload:complete', onUploadComplete);
     };
   }, [loadItems]);
@@ -150,10 +161,17 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
   const visibleFolders = foldersExpanded ? tabFolders : tabFolders.slice(0, maxVisibleFolders);
   const hiddenFolderCount = tabFolders.length - maxVisibleFolders;
 
+  const startUpload = async (filePath: string, fileName: string) => {
+    const res = await ipcRenderer.invoke('file:upload', { filePath, fileName, parentFolderId: folderId });
+    if (res?.duplicate) {
+      setDuplicateWarning(`A file named “${fileName}” already exists here.`);
+    }
+  };
+
   const handleFileUpload = async () => {
     const { filePath, fileName } = await ipcRenderer.invoke('file:pick');
     if (filePath && fileName) {
-      ipcRenderer.invoke('file:upload', { filePath, fileName, parentFolderId: folderId });
+      startUpload(filePath, fileName);
     }
   };
 
@@ -209,7 +227,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0];
       const filePath = (file as any).path;
-      ipcRenderer.invoke('file:upload', { filePath, fileName: file.name, parentFolderId: folderId });
+      startUpload(filePath, file.name);
     }
   };
 
@@ -219,11 +237,29 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
       name: newFolderName,
       parentFolderId: folderId
     });
+    if (res.duplicate) {
+      setIsCreateFolderOpen(false);
+      setDuplicateWarning(`A folder named “${newFolderName.trim()}” already exists here.`);
+      setNewFolderName('');
+      return;
+    }
     if (res.folder) {
       setItems(prev => [res.folder, ...prev]);
     }
     setIsCreateFolderOpen(false);
     setNewFolderName('');
+  };
+
+  const handleRenameConfirm = async (newName: string) => {
+    if (!renameTarget) return;
+    const res = await ipcRenderer.invoke('file:rename', { fileId: renameTarget.id, newName });
+    if (res?.error) {
+      const kind = renameTarget.is_folder === 1 ? 'folder' : 'file';
+      setRenameError(res.duplicate ? `A ${kind} named “${newName}” already exists here.` : res.error);
+      return;
+    }
+    setRenameTarget(null);
+    setRenameError(null);
   };
 
   const handleSort = (field: SortField) => {
@@ -556,8 +592,36 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
           file={contextMenu.file}
           selectedFiles={selectedFiles.has(contextMenu.file.id) ? filteredAndSortedFiles.filter(f => selectedFiles.has(f.id)) : undefined}
           onOpen={contextMenu.file.is_folder === 1 ? () => onFolderChange(contextMenu.file.id, contextMenu.file.name) : undefined}
+          onRename={(f) => { setRenameTarget(f); setRenameError(null); }}
           onClose={() => setContextMenu(null)}
         />
+      )}
+
+      {/* Rename modal */}
+      {renameTarget && (
+        <RenameModal
+          title={renameTarget.is_folder === 1 ? 'Rename Folder' : 'Rename File'}
+          // Files: base name editable, extension preserved as a muted suffix.
+          // Folders: the whole name is the base ("my.folder" stays intact).
+          initialName={renameTarget.is_folder === 1 ? renameTarget.name : splitFileName(renameTarget.name).base}
+          suffix={renameTarget.is_folder === 1 ? '' : splitFileName(renameTarget.name).ext}
+          error={renameError}
+          onConfirm={handleRenameConfirm}
+          onCancel={() => { setRenameTarget(null); setRenameError(null); }}
+        />
+      )}
+
+      {/* Duplicate-name warning (shown when the auto-rename setting is off) */}
+      {duplicateWarning && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 backdrop-blur-[2px]">
+          <div className="w-[400px] max-w-[90vw] rounded-xl border border-line bg-panel p-6 shadow-[0_10px_30px_rgba(0,0,0,0.1)]">
+            <h3 className="mb-4 text-[18px] font-semibold text-ink">Already Exists</h3>
+            <div className="mb-6 text-[13px] leading-relaxed text-muted">{duplicateWarning}</div>
+            <div className="flex justify-end gap-2">
+              <button className="btn-primary" onClick={() => setDuplicateWarning(null)}>OK</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

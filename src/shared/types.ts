@@ -105,6 +105,8 @@ export interface IpcFolderCreateRequest {
 
 export interface IpcFolderCreateResponse {
   folder?: FileRow;
+  /** Set when creation was rejected because a same-named sibling already exists (modal mode). */
+  duplicate?: boolean;
   error?: string;
 }
 
@@ -165,6 +167,19 @@ export interface IpcFileUploadRequest {
 
 export interface IpcFileUploadResponse {
   fileId?: number;
+  /** Set when the upload was rejected because a same-named sibling already exists (modal mode). */
+  duplicate?: boolean;
+  error?: string;
+}
+
+export interface IpcFileRenameRequest {
+  fileId: number;
+  newName: string;
+}
+
+export interface IpcFileRenameResponse {
+  file?: FileRow;
+  duplicate?: boolean;
   error?: string;
 }
 
@@ -239,14 +254,21 @@ export interface IpcFileStarredEvent {
   file: FileRow;
 }
 
+export interface IpcFileRenamedEvent {
+  file: FileRow;
+}
+
 // Settings
 
 export interface IpcSettingsGetResponse {
   confirmDelete: boolean;
+  /** When true, same-named files/folders auto-rename to "name (2)"; when false, a modal warns instead. */
+  autoRenameDuplicates: boolean;
 }
 
 export interface IpcSettingsSetRequest {
-  confirmDelete: boolean;
+  confirmDelete?: boolean;
+  autoRenameDuplicates?: boolean;
 }
 
 export interface IpcSettingsSetResponse {

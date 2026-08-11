@@ -1,6 +1,6 @@
 import { getDb } from './schema';
 import { AccountRow, FileRow, ChunkRow, StorageCategories, UserRow, SearchResultRow } from '../../shared/types';
-import { getFileCategory } from '../../shared/fileCategory';
+import { getFileCategory, splitFileName } from '../../shared/fileCategory';
 
 // Accounts
 export function addAccount(account: Omit<AccountRow, 'id' | 'added_at'>): AccountRow {
@@ -192,6 +192,52 @@ export function searchFilesAndFolders(userId: number, query: string, limit = 25)
     row.parent_path = pathCache.get(row.parent_folder_id) ?? [];
   }
   return rows;
+}
+
+export function renameFile(id: number, userId: number, newName: string): FileRow | undefined {
+  const db = getDb();
+  db.prepare('UPDATE files SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?').run(newName, id, userId);
+  return getFile(id, userId);
+}
+
+/**
+ * Returns the first SAME-KIND sibling (file vs folder) in the same parent
+ * folder whose name matches, case-insensitively. Files and folders with the
+ * same name coexist (e.g. a folder "Random" and a file "Random"). Used for
+ * duplicate detection on upload, folder creation and rename.
+ */
+export function findDuplicateName(userId: number, name: string, parentFolderId: number | null, isFolder: boolean, excludeId?: number): FileRow | undefined {
+  const db = getDb();
+  const params: unknown[] = [userId, name, isFolder ? 1 : 0];
+  let sql: string;
+  if (parentFolderId === null) {
+    sql = "SELECT * FROM files WHERE user_id = ? AND name = ? COLLATE NOCASE AND is_folder = ? AND parent_folder_id IS NULL";
+  } else {
+    sql = "SELECT * FROM files WHERE user_id = ? AND name = ? COLLATE NOCASE AND is_folder = ? AND parent_folder_id = ?";
+    params.push(parentFolderId);
+  }
+  if (excludeId !== undefined) {
+    sql += " AND id != ?";
+    params.push(excludeId);
+  }
+  return db.prepare(sql).get(...params) as FileRow | undefined;
+}
+
+/**
+ * Returns `name`, or `name (2)`, `name (3)`, … so the result is unique among
+ * same-kind siblings. Keeps the file extension intact (photo.png → photo (2).png).
+ */
+export function getUniqueName(userId: number, name: string, parentFolderId: number | null, isFolder: boolean, excludeId?: number): string {
+  if (!findDuplicateName(userId, name, parentFolderId, isFolder, excludeId)) return name;
+  // Reuse the shared split so extension handling stays in one place.
+  const { base, ext } = splitFileName(name);
+  let counter = 2;
+  let candidate = `${base} (${counter})${ext}`;
+  while (findDuplicateName(userId, candidate, parentFolderId, isFolder, excludeId)) {
+    counter++;
+    candidate = `${base} (${counter})${ext}`;
+  }
+  return candidate;
 }
 
 export function updateFileStatus(id: number, userId: number, status: FileRow['status']): void {

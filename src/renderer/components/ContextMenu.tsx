@@ -9,10 +9,11 @@ interface ContextMenuProps {
   file: FileRowType;
   onClose: () => void;
   onOpen?: () => void;
+  onRename?: (file: FileRowType) => void;
   selectedFiles?: FileRowType[];
 }
 
-export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, onOpen, selectedFiles }) => {
+export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, onOpen, onRename, selectedFiles }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const isFolder = file.is_folder === 1;
 
@@ -165,7 +166,18 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, o
       </button>
       
       <div className="my-1 h-[1px] w-full bg-line" />
-      
+
+      {/* Rename is single-target only (batch rename doesn't make sense). */}
+      {targets.length === 1 && onRename && (
+        <button
+          onClick={() => { onRename(file); onClose(); }}
+          className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-[13px] font-medium text-ink transition-colors hover:bg-accent/[0.08] hover:text-accent cursor-pointer"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+          Rename
+        </button>
+      )}
+
       <button
         onClick={handleDeleteClick}
         className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-[13px] font-medium text-red-600 transition-colors hover:bg-red-50 cursor-pointer"

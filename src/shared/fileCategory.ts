@@ -119,6 +119,20 @@ function getExtension(name: string): string {
   return name.split('.').pop()?.toLowerCase() || '';
 }
 
+/**
+ * Split a filename into its base and its LAST extension (e.g. photo.png →
+ * { base: 'photo', ext: '.png' }; archive.tar.gz → { base: 'archive.tar', ext: '.gz' }).
+ * Files with no extension return ext: ''. Used by the rename modal so the
+ * extension is preserved while the user edits only the base name.
+ */
+export function splitFileName(name: string): { base: string; ext: string } {
+  const m = name.match(/^(.*)(\.[^.\\/]*)$/);
+  // No extension, or a hidden file like ".gitignore" (empty base) — keep the
+  // whole name as the editable base so the rename modal never opens empty.
+  if (!m || !m[1]) return { base: name, ext: '' };
+  return { base: m[1], ext: m[2] };
+}
+
 /** Broad category — used by the sidebar legend and storage stats. */
 export function getFileCategory(name: string): FileCategory {
   switch (getFileTypeInfo(name).category) {

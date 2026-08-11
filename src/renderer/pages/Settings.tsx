@@ -3,38 +3,63 @@ import React, { useEffect, useState } from 'react';
 const { ipcRenderer } = window.require('electron');
 
 /**
- * Settings page — currently only the delete-confirmation toggle. Reads/writes
- * the `confirmDelete` flag in the app_state table via IPC.
+ * Settings page — confirm-before-delete toggle and the duplicate-name policy
+ * (auto-rename vs. warn-with-modal). Reads/writes app_state via IPC.
  */
 export const Settings: React.FC = () => {
   const [confirmDelete, setConfirmDelete] = useState(true);
+  const [autoRenameDuplicates, setAutoRenameDuplicates] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    ipcRenderer.invoke('settings:get').then((res: { confirmDelete: boolean }) => {
+    ipcRenderer.invoke('settings:get').then((res: { confirmDelete: boolean; autoRenameDuplicates: boolean }) => {
       setConfirmDelete(res.confirmDelete);
+      setAutoRenameDuplicates(res.autoRenameDuplicates);
       setLoaded(true);
     }).catch(() => {
       setLoaded(true);
     });
   }, []);
 
-  const handleToggle = async (value: boolean) => {
-    const prev = confirmDelete;
-    setConfirmDelete(value);
+  const handleToggle = async (key: 'confirmDelete' | 'autoRenameDuplicates', value: boolean) => {
+    const prev = key === 'confirmDelete' ? confirmDelete : autoRenameDuplicates;
+    if (key === 'confirmDelete') setConfirmDelete(value);
+    else setAutoRenameDuplicates(value);
     setError(null);
     try {
-      const res = await ipcRenderer.invoke('settings:set', { confirmDelete: value });
+      const res = await ipcRenderer.invoke('settings:set', { [key]: value });
       if (res.error) {
         setError(res.error);
-        setConfirmDelete(prev); // roll back on failure
+        if (key === 'confirmDelete') setConfirmDelete(prev);
+        else setAutoRenameDuplicates(prev); // roll back on failure
       }
     } catch (e: any) {
       setError(String(e));
-      setConfirmDelete(prev); // roll back on failure
+      if (key === 'confirmDelete') setConfirmDelete(prev);
+      else setAutoRenameDuplicates(prev); // roll back on failure
     }
   };
+
+  const Toggle = ({ checked, onToggle }: { checked: boolean; onToggle: () => void }) => (
+    <button
+      role="switch"
+      aria-checked={checked}
+      onClick={onToggle}
+      disabled={!loaded}
+      className={`relative h-[24px] w-[44px] flex-shrink-0 cursor-pointer rounded-full border transition-colors duration-200 ${
+        checked
+          ? 'border-accent bg-accent'
+          : 'border-line bg-surface'
+      } ${loaded ? '' : 'opacity-50'}`}
+    >
+      <span
+        className={`absolute top-[2px] h-[18px] w-[18px] rounded-full bg-white shadow transition-all duration-200 ${
+          checked ? 'left-[22px]' : 'left-[2px]'
+        }`}
+      />
+    </button>
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -44,9 +69,9 @@ export const Settings: React.FC = () => {
       </div>
 
       <div className="max-w-[560px]">
-        <div className="rounded-xl border border-line bg-panel">
+        <div className="overflow-hidden rounded-xl border border-line bg-panel">
           {/* Delete confirmation */}
-          <div className="flex items-center justify-between gap-4 p-5">
+          <div className="flex items-center justify-between gap-4 border-b border-line p-5">
             <div className="min-w-0">
               <div className="text-[14px] font-semibold text-ink">Ask before deleting</div>
               <div className="mt-0.5 text-[12px] leading-relaxed text-muted">
@@ -54,23 +79,19 @@ export const Settings: React.FC = () => {
                 delete immediately without asking.
               </div>
             </div>
-            <button
-              role="switch"
-              aria-checked={confirmDelete}
-              onClick={() => handleToggle(!confirmDelete)}
-              disabled={!loaded}
-              className={`relative h-[24px] w-[44px] flex-shrink-0 cursor-pointer rounded-full border transition-colors duration-200 ${
-                confirmDelete
-                  ? 'border-accent bg-accent'
-                  : 'border-line bg-surface'
-              } ${loaded ? '' : 'opacity-50'}`}
-            >
-              <span
-                className={`absolute top-[2px] h-[18px] w-[18px] rounded-full bg-white shadow transition-all duration-200 ${
-                  confirmDelete ? 'left-[22px]' : 'left-[2px]'
-                }`}
-              />
-            </button>
+            <Toggle checked={confirmDelete} onToggle={() => handleToggle('confirmDelete', !confirmDelete)} />
+          </div>
+
+          {/* Duplicate names */}
+          <div className="flex items-center justify-between gap-4 p-5">
+            <div className="min-w-0">
+              <div className="text-[14px] font-semibold text-ink">Auto-rename duplicates</div>
+              <div className="mt-0.5 text-[12px] leading-relaxed text-muted">
+                When you upload or create a file/folder whose name already exists here, save it
+                as “name (2)” automatically. Turn this off to show a warning instead.
+              </div>
+            </div>
+            <Toggle checked={autoRenameDuplicates} onToggle={() => handleToggle('autoRenameDuplicates', !autoRenameDuplicates)} />
           </div>
         </div>
 

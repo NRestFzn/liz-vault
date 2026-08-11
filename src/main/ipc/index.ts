@@ -1,8 +1,8 @@
-import { ipcMain, BrowserWindow } from 'electron';
-import { 
-  getAllAccounts, removeAccount, 
+import { ipcMain, BrowserWindow } from 'electron';import {
+  getAllAccounts, removeAccount,
   getAllFiles, searchFilesAndFolders, removeFile, getFile,
   createFolder, getFilesInFolder, getFolderItemCounts, getFolderPath, toggleStarred, getStarredFiles, getStorageStats,
+  renameFile, findDuplicateName, getUniqueName,
   addUser, getUser, removeUser, getAppState, setAppState, deleteAppState
 } from '../db/queries';
 import { initiateOAuthFlow, initiateLoginFlow } from '../google/auth';
@@ -16,6 +16,7 @@ import {
   IpcFolderPathRequest, IpcFolderPathResponse,
   IpcFileStarRequest, IpcFileStarResponse,
   IpcFilesSearchAllRequest, IpcFilesSearchAllResponse,
+  IpcFileRenameRequest, IpcFileRenameResponse,
   IpcSettingsGetResponse, IpcSettingsSetRequest, IpcSettingsSetResponse
 } from '../../shared/types';
 import { uploadFile } from '../vault/upload';
@@ -133,9 +134,18 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
   ipcMain.handle('folder:create', async (_: any, payload: IpcFolderCreateRequest): Promise<IpcFolderCreateResponse> => {
     try {
       const userId = requireUserId();
-      if (!payload.name.trim()) return { error: 'Folder name cannot be empty' };
-      const folder = createFolder(userId, payload.name, payload.parentFolderId ?? null);
-      return { folder };
+      const name = payload.name.trim();
+      if (!name) return { error: 'Folder name cannot be empty' };
+
+      const parentId = payload.parentFolderId ?? null;
+      const autoRename = getAppState('autoRenameDuplicates') !== '0';
+      if (findDuplicateName(userId, name, parentId, true)) {
+        if (!autoRename) {
+          return { duplicate: true, error: 'A folder with this name already exists here.' };
+        }
+        return { folder: createFolder(userId, getUniqueName(userId, name, parentId, true), parentId) };
+      }
+      return { folder: createFolder(userId, name, parentId) };
     } catch (e: any) {
       return { error: e.message };
     }
@@ -226,19 +236,66 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
     }
   });
 
+  // -- Rename --
+
+  ipcMain.handle('file:rename', async (_: any, payload: IpcFileRenameRequest): Promise<IpcFileRenameResponse> => {
+    try {
+      const userId = requireUserId();
+      const newName = payload.newName.trim();
+      if (!newName) return { error: 'Name cannot be empty' };
+
+      const current = getFile(payload.fileId, userId);
+      if (!current) return { error: 'File not found' };
+      if (newName === current.name) return { file: current }; // no-op
+
+      // Same duplicate policy as upload/folder-create: if a same-kind sibling
+      // already has this name, either auto-rename to "name (2)" or flag
+      // duplicate so the renderer can show a modal. Files and folders with the
+      // same name coexist — only same-type collisions count.
+      const autoRename = getAppState('autoRenameDuplicates') !== '0';
+      const isFolder = current.is_folder === 1;
+      let finalName = newName;
+      if (findDuplicateName(userId, newName, current.parent_folder_id, isFolder, current.id)) {
+        if (!autoRename) {
+          return { duplicate: true, error: 'A file with this name already exists here.' };
+        }
+        finalName = getUniqueName(userId, newName, current.parent_folder_id, isFolder, current.id);
+      }
+
+      const file = renameFile(payload.fileId, userId, finalName);
+      if (!file) return { error: 'File not found' };
+
+      // The extension may have changed (photo.jpg → photo.txt) — the cached
+      // thumbnail for this id would be stale.
+      invalidateThumbnail(payload.fileId);
+      mainWindow.webContents.send('file:renamed', { file });
+      return { file };
+    } catch (e: any) {
+      return { error: e.message };
+    }
+  });
+
   // -- Settings --
 
   ipcMain.handle('settings:get', async (): Promise<IpcSettingsGetResponse> => {
     try {
-      return { confirmDelete: getAppState('confirmDelete') !== '0' };
+      return {
+        confirmDelete: getAppState('confirmDelete') !== '0',
+        autoRenameDuplicates: getAppState('autoRenameDuplicates') !== '0'
+      };
     } catch (e: any) {
-      return { confirmDelete: true };
+      return { confirmDelete: true, autoRenameDuplicates: true };
     }
   });
 
   ipcMain.handle('settings:set', async (_: any, payload: IpcSettingsSetRequest): Promise<IpcSettingsSetResponse> => {
     try {
-      setAppState('confirmDelete', payload.confirmDelete ? '1' : '0');
+      if (payload.confirmDelete !== undefined) {
+        setAppState('confirmDelete', payload.confirmDelete ? '1' : '0');
+      }
+      if (payload.autoRenameDuplicates !== undefined) {
+        setAppState('autoRenameDuplicates', payload.autoRenameDuplicates ? '1' : '0');
+      }
       return { success: true };
     } catch (e: any) {
       return { error: e.message };
@@ -258,8 +315,22 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
   ipcMain.handle('file:upload', async (_: any, payload: IpcFileUploadRequest): Promise<IpcFileUploadResponse> => {
     try {
       const userId = requireUserId();
-      uploadFile(userId, mainWindow, payload.filePath, payload.fileName, payload.parentFolderId ?? null).catch(console.error);
-      return {}; 
+      const parentId = payload.parentFolderId ?? null;
+
+      // Duplicate-name policy: auto-rename to "name (2)" by default, or reject
+      // with duplicate:true so the renderer can show a modal instead. Only
+      // same-kind siblings (files vs folders) collide.
+      const autoRename = getAppState('autoRenameDuplicates') !== '0';
+      let fileName = payload.fileName;
+      if (findDuplicateName(userId, fileName, parentId, false)) {
+        if (!autoRename) {
+          return { duplicate: true, error: 'A file with this name already exists here.' };
+        }
+        fileName = getUniqueName(userId, fileName, parentId, false);
+      }
+
+      uploadFile(userId, mainWindow, payload.filePath, fileName, parentId).catch(console.error);
+      return {};
     } catch (e: any) {
       return { error: e.message };
     }

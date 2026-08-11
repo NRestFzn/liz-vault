@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { SearchResultRow } from '../../shared/types';
-import { getFileTypeInfo } from '../../shared/fileCategory';
+import { getFileTypeInfo, splitFileName } from '../../shared/fileCategory';
 import { FileTypeIcon } from './FileTypeIcon';
 import { ThumbnailImage } from './ThumbnailImage';
 import { ConfirmDialog } from './ConfirmDialog';
+import { RenameModal } from './RenameModal';
 
 const { ipcRenderer } = window.require('electron');
 
@@ -44,27 +45,31 @@ const STAR_ICON = (
 export const FileDetailModal: React.FC<FileDetailModalProps> = ({ file, onClose, onOpenLocation }) => {
   const [starred, setStarred] = useState(file.is_starred === 1);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  // Track the live name so a rename updates the header/preview without reopening.
+  const [displayName, setDisplayName] = useState(file.name);
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
 
-  const typeInfo = getFileTypeInfo(file.name);
+  const typeInfo = getFileTypeInfo(displayName);
   // Full breadcrumb path, Google Drive style: "All Files / Random / Apalah".
   const location =
     file.parent_path && file.parent_path.length > 0
       ? `All Files / ${file.parent_path.join(' / ')}`
       : 'All Files';
 
-  // Esc to close, autofocus the close button. While the nested ConfirmDialog
-  // is open, Esc must only dismiss the confirm dialog (it owns its own handler)
-  // — so skip our own handler in that state.
+  // Esc to close, autofocus the close button. While a nested dialog
+  // (ConfirmDialog / RenameModal) is open, Esc must only dismiss that dialog
+  // (it owns its own handler) — so skip our own handler in those states.
   useEffect(() => {
     closeRef.current?.focus();
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !confirmOpen) onClose();
+      if (e.key === 'Escape' && !confirmOpen && !renameOpen) onClose();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onClose, confirmOpen]);
+  }, [onClose, confirmOpen, renameOpen]);
 
   // Clicking the dimmed backdrop closes — but ignore clicks that land on the
   // nested ConfirmDialog (it has its own dismissal).
@@ -86,10 +91,25 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({ file, onClose,
 
   const handleDownload = async () => {
     try {
-      const { filePath } = await ipcRenderer.invoke('file:pick-download-path', file.name);
+      const { filePath } = await ipcRenderer.invoke('file:pick-download-path', displayName);
       if (filePath) {
         await ipcRenderer.invoke('file:download', { fileId: file.id, savePath: filePath });
       }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleRenameConfirm = async (newName: string) => {
+    try {
+      const res = await ipcRenderer.invoke('file:rename', { fileId: file.id, newName });
+      if (res?.error) {
+        setRenameError(res.duplicate ? `A file named “${newName}” already exists here.` : res.error);
+        return;
+      }
+      if (res?.file) setDisplayName(res.file.name);
+      setRenameOpen(false);
+      setRenameError(null);
     } catch (e) {
       console.error(e);
     }
@@ -164,9 +184,9 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({ file, onClose,
               className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg"
               style={{ backgroundColor: `${typeInfo.color}1A` }}
             >
-              <FileTypeIcon name={file.name} size={18} />
+              <FileTypeIcon name={displayName} size={18} />
             </div>
-            <h3 className="truncate text-[15px] font-semibold text-ink">{file.name}</h3>
+            <h3 className="truncate text-[15px] font-semibold text-ink">{displayName}</h3>
           </div>
           <button
             ref={closeRef}
@@ -180,7 +200,7 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({ file, onClose,
 
         {/* Preview — the only flexible element, so the modal fits the window without scrolling */}
         <div className="flex h-[220px] min-h-0 items-center justify-center overflow-hidden border-b border-line bg-surface">
-          <ThumbnailImage file={file} iconSize={72} />
+          <ThumbnailImage file={{ ...file, name: displayName }} iconSize={72} />
         </div>
 
         {/* Body — compact, never scrolls (content is short and the preview absorbs the shrink) */}
@@ -217,6 +237,10 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({ file, onClose,
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
             Open Location
           </button>
+          <button className="btn-outline px-3.5 py-1.5 text-[12px]" onClick={() => { setRenameError(null); setRenameOpen(true); }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+            Rename
+          </button>
           <button className="btn-outline px-3.5 py-1.5 text-[12px]" onClick={handleDownload}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             Download
@@ -234,11 +258,24 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({ file, onClose,
       {confirmOpen && (
         <ConfirmDialog
           title="Delete File"
-          message={<>Delete <span className="font-medium text-ink">“{file.name}”</span> from all connected drives? This cannot be undone.</>}
+          message={<>Delete <span className="font-medium text-ink">“{displayName}”</span> from all connected drives? This cannot be undone.</>}
           confirmLabel="Delete"
           checkboxLabel="Don't ask again"
           onConfirm={handleConfirmDelete}
           onCancel={handleCancelDelete}
+        />
+      )}
+
+      {renameOpen && (
+        <RenameModal
+          title={file.is_folder === 1 ? 'Rename Folder' : 'Rename File'}
+          // Files: base name editable, extension preserved as a muted suffix.
+          // Folders: the whole name is the base ("my.folder" stays intact).
+          initialName={file.is_folder === 1 ? displayName : splitFileName(displayName).base}
+          suffix={file.is_folder === 1 ? '' : splitFileName(displayName).ext}
+          error={renameError}
+          onConfirm={handleRenameConfirm}
+          onCancel={() => { setRenameOpen(false); setRenameError(null); }}
         />
       )}
     </div>

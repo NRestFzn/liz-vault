@@ -5,8 +5,10 @@ import { FolderRow } from '../components/FolderRow';
 import { FolderCard } from '../components/FolderCard';
 import { ViewToggle } from '../components/ViewToggle';
 import { ContextMenu } from '../components/ContextMenu';
+import { RenameModal } from '../components/RenameModal';
 import { ThumbnailImage } from '../components/ThumbnailImage';
 import { FileTypeIcon } from '../components/FileTypeIcon';
+import { splitFileName } from '../../shared/fileCategory';
 
 const FOLDER_CARD_COLORS: Array<'orange' | 'green' | 'blue'> = ['orange', 'green', 'blue'];
 
@@ -34,6 +36,8 @@ export const Starred: React.FC<StarredProps> = ({ viewMode, onViewModeChange }) 
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, file: FileRowType } | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<Set<number>>(new Set());
+  const [renameTarget, setRenameTarget] = useState<FileRowType | null>(null);
+  const [renameError, setRenameError] = useState<string | null>(null);
 
   const loadFiles = useCallback(async () => {
     const res = await ipcRenderer.invoke('files:starred');
@@ -53,13 +57,18 @@ export const Starred: React.FC<StarredProps> = ({ viewMode, onViewModeChange }) 
           : prev.filter(f => f.id !== data.file.id)
       );
     };
+    const onRenamed = (_: any, data: { file: FileRowType }) => {
+      setFiles(prev => prev.map(f => (f.id === data.file.id ? data.file : f)));
+    };
 
     ipcRenderer.on('file:deleted', onDeleted);
     ipcRenderer.on('file:starred', onStarred);
+    ipcRenderer.on('file:renamed', onRenamed);
 
     return () => {
       ipcRenderer.removeListener('file:deleted', onDeleted);
       ipcRenderer.removeListener('file:starred', onStarred);
+      ipcRenderer.removeListener('file:renamed', onRenamed);
     };
   }, [loadFiles]);
 
@@ -272,7 +281,29 @@ export const Starred: React.FC<StarredProps> = ({ viewMode, onViewModeChange }) 
           y={contextMenu.y}
           file={contextMenu.file}
           selectedFiles={selectedFiles.has(contextMenu.file.id) ? filteredAndSortedFiles.filter(f => selectedFiles.has(f.id)) : undefined}
+          onRename={(f) => { setRenameTarget(f); setRenameError(null); }}
           onClose={() => setContextMenu(null)}
+        />
+      )}
+      {renameTarget && (
+        <RenameModal
+          title={renameTarget.is_folder === 1 ? 'Rename Folder' : 'Rename File'}
+          // Files: base name editable, extension preserved as a muted suffix.
+          // Folders: the whole name is the base ("my.folder" stays intact).
+          initialName={renameTarget.is_folder === 1 ? renameTarget.name : splitFileName(renameTarget.name).base}
+          suffix={renameTarget.is_folder === 1 ? '' : splitFileName(renameTarget.name).ext}
+          error={renameError}
+          onConfirm={async (newName) => {
+            const res = await ipcRenderer.invoke('file:rename', { fileId: renameTarget.id, newName });
+            if (res?.error) {
+              const kind = renameTarget.is_folder === 1 ? 'folder' : 'file';
+              setRenameError(res.duplicate ? `A ${kind} named “${newName}” already exists here.` : res.error);
+              return;
+            }
+            setRenameTarget(null);
+            setRenameError(null);
+          }}
+          onCancel={() => { setRenameTarget(null); setRenameError(null); }}
         />
       )}
     </div>
