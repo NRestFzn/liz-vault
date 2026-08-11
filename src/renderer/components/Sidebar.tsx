@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { AccountRow, StorageCategories, UserRow } from '../../shared/types';
+import { OAuthWaitingModal } from './OAuthWaitingModal';
+import { TruncatedLabel } from './TruncatedLabel';
 
 const { ipcRenderer } = window.require('electron');
 
@@ -78,9 +80,26 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
     setLoginError(null);
     try {
       const res = await ipcRenderer.invoke('user:login');
+      // A retry aborts the previous attempt — its response is `cancelled`,
+      // which should never surface as an error (and must not linger after a
+      // successful login either).
+      if (res.cancelled) return;
       if (res.error) setLoginError(res.error);
     } finally {
       setLoginLoading(false);
+    }
+  };
+
+  // User pressed Cancel on the waiting modal — abort the pending flow via
+  // IPC; the pending `user:login` invoke settles with `cancelled` and hides.
+  // The state reset runs even if the IPC itself fails, so the modal can never
+  // get stuck open.
+  const handleCancelLogin = async () => {
+    try {
+      await ipcRenderer.invoke('oauth:cancel');
+    } finally {
+      setLoginLoading(false);
+      setLoginError(null);
     }
   };
 
@@ -125,7 +144,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
             {user.display_name && (
               <div className="truncate text-[12px] font-medium text-ink">{user.display_name}</div>
             )}
-            <div className="truncate text-[11px] text-muted">{user.email}</div>
+            {/* Hover a truncated email to see the full address (tooltip below, auto width) */}
+            <TruncatedLabel text={user.email} className="text-[11px] text-muted" position="below" />
           </div>
         </div>
       ) : (
@@ -201,6 +221,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
           </button>
         )}
       </div>
+
+      {/* Desktop-style OAuth waiting modal while the browser is open */}
+      {loginLoading && (
+        <OAuthWaitingModal
+          title="Sign in to LizVault"
+          onCancel={handleCancelLogin}
+        />
+      )}
     </aside>
   );
 };

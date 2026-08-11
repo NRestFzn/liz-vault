@@ -3,14 +3,33 @@ import { AccountRow, FileRow, ChunkRow, StorageCategories, UserRow, SearchResult
 import { getFileCategory, splitFileName } from '../../shared/fileCategory';
 
 // Accounts
-export function addAccount(account: Omit<AccountRow, 'id' | 'added_at'>): AccountRow {
+//
+// Upsert on email: re-logging into an already-connected Google account REPAIRS
+// that account row in place (fresh refresh token, token marked healthy) instead
+// of failing on the UNIQUE email constraint.
+export function addAccount(account: Omit<AccountRow, 'id' | 'added_at' | 'token_ok' | 'last_checked_at'>): AccountRow {
   const db = getDb();
   const stmt = db.prepare(`
-    INSERT INTO accounts (user_id, email, refresh_token, total_bytes, used_bytes, root_folder_id)
-    VALUES (@user_id, @email, @refresh_token, @total_bytes, @used_bytes, @root_folder_id)
+    INSERT INTO accounts (user_id, email, refresh_token, total_bytes, used_bytes, root_folder_id, token_ok, last_checked_at)
+    VALUES (@user_id, @email, @refresh_token, @total_bytes, @used_bytes, @root_folder_id, 1, @last_checked_at)
+    ON CONFLICT(email) DO UPDATE SET
+      user_id = excluded.user_id,
+      refresh_token = excluded.refresh_token,
+      total_bytes = excluded.total_bytes,
+      used_bytes = excluded.used_bytes,
+      root_folder_id = excluded.root_folder_id,
+      token_ok = 1,
+      last_checked_at = excluded.last_checked_at
   `);
-  const info = stmt.run(account);
+  const info = stmt.run({ ...account, last_checked_at: new Date().toISOString() });
   return getAccount(info.lastInsertRowid as number, account.user_id)!;
+}
+
+/** Persist the last token-health check result (0 = expired/revoked, needs re-login). */
+export function setAccountTokenStatus(accountId: number, ok: boolean): void {
+  const db = getDb();
+  db.prepare('UPDATE accounts SET token_ok = ?, last_checked_at = ? WHERE id = ?')
+    .run(ok ? 1 : 0, new Date().toISOString(), accountId);
 }
 
 export function getAccount(id: number, userId: number): AccountRow | undefined {

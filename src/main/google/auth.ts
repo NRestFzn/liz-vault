@@ -1,14 +1,8 @@
 import { google } from 'googleapis';
 import { shell } from 'electron';
 import http from 'http';
-import { addAccount, addUser, getAllAccounts } from '../db/queries';
+import { addAccount, addUser, getAllAccounts, getAccount, getAppState } from '../db/queries';
 import { AccountRow, UserRow } from '../../shared/types';
-import * as dotenv from 'dotenv';
-import path from 'path';
-
-// Load .env variables
-// In development __dirname is dist/main/main/google, so we go up 4 levels
-dotenv.config({ path: path.join(__dirname, '../../../../.env') });
 
 const SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
@@ -16,61 +10,72 @@ const SCOPES = [
   'https://www.googleapis.com/auth/userinfo.email',
 ];
 
-const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || 'YOUR_GOOGLE_CLIENT_ID';
-const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || 'YOUR_GOOGLE_CLIENT_SECRET';
+// Google API credentials are configured in the Settings page and stored in
+// the app_state table — NOT in .env. Read them live on every OAuth client
+// creation so a settings change applies without a restart.
+function getOAuthCredentials(): { clientId: string; clientSecret: string } {
+  const clientId = getAppState('googleClientId') || '';
+  const clientSecret = getAppState('googleClientSecret') || '';
+  return { clientId, clientSecret };
+}
+
+function assertCredentialsConfigured(): void {
+  const { clientId, clientSecret } = getOAuthCredentials();
+  if (!clientId || !clientSecret) {
+    throw new Error('Google API credentials are not set. Open Settings and add your Client ID and Client Secret first.');
+  }
+}
 
 // Google no longer accepts custom URI schemes (e.g. lizvault://oauth/callback)
 // as OAuth redirect URIs. Native/desktop apps must use the loopback redirect
 // flow (RFC 8252): a temporary one-shot HTTP listener on 127.0.0.1 catches the
-// callback. No redirect URI needs to be registered in Google Cloud Console.
-const DEFAULT_LOOPBACK_HOST = '127.0.0.1';
-const DEFAULT_LOOPBACK_PORT = 3000;
-const DEFAULT_REDIRECT_URI = `http://${DEFAULT_LOOPBACK_HOST}:${DEFAULT_LOOPBACK_PORT}/oauth/callback`;
+// callback.
+//
+// For a "Desktop app" OAuth client (the recommended type), Google accepts ANY
+// loopback port dynamically — nothing needs to be registered in the console.
+// So we bind port 0 (ephemeral): the OS picks a free port, and the redirect
+// URI is built from whatever port was actually assigned. No .env, no fixed
+// port, no registration — works identically on every device.
+const LOOPBACK_HOST = '127.0.0.1';
 
-interface LoopbackConfig {
-  /** Full redirect URI, e.g. http://127.0.0.1:3000/oauth/callback */
-  redirectUri: string;
-  /** Host the one-shot listener binds to */
-  host: string;
-  /** Port the one-shot listener binds to */
-  port: number;
+// The currently-pending OAuth/login flow. Tracked so a NEW flow can abort a
+// stale one (e.g. the user cancelled the previous attempt — the browser never
+// called back, so the old listener would otherwise linger until its timeout
+// and hold the port). The fail function is stored too, so aborting settles the
+// old flow's promise immediately instead of the renderer waiting for the
+// 5-minute timeout (and later showing a confusing "timed out" error).
+interface ActiveOAuthFlow {
+  server: http.Server;
+  fail: (err: Error) => void;
+}
+let activeOAuthFlow: ActiveOAuthFlow | null = null;
+
+/**
+ * Thrown when a newer flow aborts a still-pending previous one. The IPC
+ * handlers translate this into `{ cancelled: true }` (not an error) so the
+ * renderer ignores it — the user simply started a fresh attempt.
+ */
+export class OAuthCancelledError extends Error {
+  constructor() {
+    super('Previous login attempt was cancelled by a newer attempt.');
+    this.name = 'OAuthCancelledError';
+  }
 }
 
-// The redirect URI must exactly match the one registered in Google Cloud
-// Console (e.g. http://127.0.0.1:3000/oauth/callback on a Web application
-// client). Configure it via OAUTH_REDIRECT_URI in .env so you can change it
-// later without touching code. OAUTH_PORT is kept as a legacy fallback.
-function getLoopbackConfig(): LoopbackConfig {
-  const full = process.env.OAUTH_REDIRECT_URI;
-  if (full) {
-    try {
-      const url = new URL(full);
-      const host = url.hostname;
-      const port = url.port ? Number(url.port) : 80;
-      const isLoopback = host === '127.0.0.1' || host === 'localhost';
-      const isHttp = url.protocol === 'http:';
-      if (isLoopback && isHttp && Number.isInteger(port) && port > 0 && port <= 65535) {
-        return { redirectUri: full, host, port };
-      }
-      console.warn('[OAuth] Invalid OAUTH_REDIRECT_URI in .env (must be http(s)://127.0.0.1 or localhost with a valid port), falling back to', DEFAULT_REDIRECT_URI);
-    } catch {
-      console.warn('[OAuth] Invalid OAUTH_REDIRECT_URI in .env, falling back to', DEFAULT_REDIRECT_URI);
-    }
+export function abortActiveOAuthFlow(): void {
+  if (activeOAuthFlow) {
+    try { activeOAuthFlow.server.close(); } catch { /* already closed */ }
+    try { activeOAuthFlow.fail(new OAuthCancelledError()); } catch { /* already settled */ }
+    activeOAuthFlow = null;
   }
-
-  // Legacy: OAUTH_PORT only configures the port on 127.0.0.1.
-  const raw = process.env.OAUTH_PORT;
-  if (raw) {
-    const port = Number(raw);
-    if (Number.isInteger(port) && port > 0 && port <= 65535) {
-      return { redirectUri: `http://${DEFAULT_LOOPBACK_HOST}:${port}/oauth/callback`, host: DEFAULT_LOOPBACK_HOST, port };
-    }
-    console.warn('[OAuth] Invalid OAUTH_PORT in .env, falling back to', DEFAULT_LOOPBACK_PORT);
-  }
-  return { redirectUri: DEFAULT_REDIRECT_URI, host: DEFAULT_LOOPBACK_HOST, port: DEFAULT_LOOPBACK_PORT };
 }
 
-const LOOPBACK = getLoopbackConfig();
+/** Resolve the redirect URI from the OS-assigned ephemeral port. */
+function resolveRedirectUri(server: http.Server): string {
+  const addr = server.address();
+  const port = addr && typeof addr === 'object' ? addr.port : 0;
+  return `http://${LOOPBACK_HOST}:${port}/oauth/callback`;
+}
 const CALLBACK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 const SUCCESS_HTML =
@@ -82,17 +87,29 @@ const ERROR_HTML =
   '<h2>Authentication failed. Please close this window and try again.</h2></body></html>';
 
 export function createOAuthClient(redirectUri: string) {
-  return new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, redirectUri);
+  assertCredentialsConfigured();
+  const { clientId, clientSecret } = getOAuthCredentials();
+  return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
 export async function initiateOAuthFlow(userId: number): Promise<AccountRow> {
+  // Fail fast (before opening a browser / binding a port) when credentials
+  // are missing — surfaces a clear error through the IPC handler.
+  assertCredentialsConfigured();
   return new Promise<AccountRow>((resolve, reject) => {
+    // Cancel any previous (still-pending) OAuth flow so its port frees up and
+    // its renderer-side invoke settles immediately.
+    abortActiveOAuthFlow();
     const server = http.createServer();
     let settled = false;
     let callbackReceived = false;
     let timeout: NodeJS.Timeout | undefined;
+    // Resolved once the listener is bound (ephemeral port) — read by the
+    // request handler and the browser-opening code below.
+    let redirectUri = '';
 
     const cleanup = () => {
+      if (activeOAuthFlow?.server === server) activeOAuthFlow = null;
       server.close();
       if (timeout) clearTimeout(timeout);
     };
@@ -103,9 +120,9 @@ export async function initiateOAuthFlow(userId: number): Promise<AccountRow> {
       cleanup();
       reject(err);
     };
+    activeOAuthFlow = { server, fail };
 
     server.on('request', async (req, res) => {
-      const redirectUri = LOOPBACK.redirectUri;
       const reqUrl = new URL(req.url || '/', redirectUri);
 
       const callbackPath = new URL(redirectUri).pathname;
@@ -117,43 +134,48 @@ export async function initiateOAuthFlow(userId: number): Promise<AccountRow> {
 
       callbackReceived = true;
       const code = reqUrl.searchParams.get('code');
+      const errParam = reqUrl.searchParams.get('error');
 
       res.setHeader('content-type', 'text/html');
       res.end(code ? SUCCESS_HTML : ERROR_HTML);
-      server.close();
-
-      if (!code) {
-        if (!settled) {
-          settled = true;
-          if (timeout) clearTimeout(timeout);
-          reject(new Error('No code found in callback URL'));
-        }
-        return;
-      }
 
       if (settled) return;
       settled = true;
       if (timeout) clearTimeout(timeout);
 
+      if (!code) {
+        // Google's own "Cancel" button on the consent page redirects here with
+        // error=access_denied — a real, detectable cancellation.
+        cleanup();
+        reject(new Error(
+          errParam === 'access_denied'
+            ? 'You cancelled the sign-in in the browser.'
+            : 'No code found in callback URL'
+        ));
+        return;
+      }
+
       try {
         const account = await completeOAuth(code, redirectUri, userId);
+        cleanup();
         resolve(account);
       } catch (e) {
+        cleanup();
         reject(e as Error);
       }
     });
 
-    server.listen(LOOPBACK.port, LOOPBACK.host, async () => {
-      const redirectUri = LOOPBACK.redirectUri;
-      console.log('[OAuth] redirect URI:', redirectUri);
-      const oauth2Client = createOAuthClient(redirectUri);
-      const authUrl = oauth2Client.generateAuthUrl({
-        access_type: 'offline',
-        scope: SCOPES,
-        prompt: 'consent'
-      });
-
+    server.listen(0, LOOPBACK_HOST, async () => {
       try {
+        redirectUri = resolveRedirectUri(server);
+        console.log('[OAuth] redirect URI:', redirectUri);
+        const oauth2Client = createOAuthClient(redirectUri);
+        const authUrl = oauth2Client.generateAuthUrl({
+          access_type: 'offline',
+          scope: SCOPES,
+          prompt: 'consent'
+        });
+
         await shell.openExternal(authUrl);
       } catch (e) {
         fail(e as Error);
@@ -163,11 +185,7 @@ export async function initiateOAuthFlow(userId: number): Promise<AccountRow> {
     timeout = setTimeout(() => fail(new Error('OAuth login timed out. Please try again.')), CALLBACK_TIMEOUT_MS);
 
     server.on('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE') {
-        fail(new Error(`Port ${LOOPBACK.port} is already in use by another program. Close it and try again, or change OAUTH_REDIRECT_URI in .env (and re-register it in Google Cloud Console if needed).`));
-      } else {
-        fail(err);
-      }
+      fail(err);
     });
   });
 }
@@ -234,10 +252,35 @@ async function completeOAuth(code: string, redirectUri: string, userId: number):
 }
 
 export function getDriveClient(refreshToken: string) {
-  // Redirect URI is unused for refresh-token flows; the configured one is fine.
-  const client = createOAuthClient(LOOPBACK.redirectUri);
+  // Redirect URI is unused for refresh-token flows; any value works.
+  const client = createOAuthClient('http://127.0.0.1/oauth/callback');
   client.setCredentials({ refresh_token: refreshToken });
   return google.drive({ version: 'v3', auth: client });
+}
+
+/**
+ * Verifies an account's refresh token still works with a lightweight Drive
+ * API call. Refresh tokens for testing-mode OAuth clients expire after 7 days,
+ * and revoked/expired tokens surface here as a clear error so the UI can show
+ * a "re-login" state. The IPC handler persists the result.
+ */
+export async function testAccountToken(userId: number, accountId: number): Promise<{ ok: boolean; expired?: boolean; error?: string }> {
+  try {
+    const account = getAccount(accountId, userId);
+    if (!account) return { ok: false, expired: true, error: 'Account not found.' };
+    const drive = getDriveClient(account.refresh_token);
+    await drive.about.get({ fields: 'user' });
+    return { ok: true };
+  } catch (e: any) {
+    const msg = String(e?.message || e);
+    // Auth-class errors mean the token itself is dead — a definitive "expired".
+    if (/unauthorized_client|invalid_grant|invalid_client/i.test(msg)) {
+      return { ok: false, expired: true, error: 'Your Google login has expired or was revoked. Re-login to continue.' };
+    }
+    // Everything else (network, missing credentials, 5xx) is transient — do NOT
+    // mark the account expired; just surface the error for display.
+    return { ok: false, expired: false, error: msg };
+  }
 }
 
 /**
@@ -246,13 +289,17 @@ export function getDriveClient(refreshToken: string) {
  * in use as a drive storage account.
  */
 export async function initiateLoginFlow(): Promise<UserRow> {
+  assertCredentialsConfigured();
   return new Promise<UserRow>((resolve, reject) => {
+    abortActiveOAuthFlow();
     const server = http.createServer();
     let settled = false;
     let callbackReceived = false;
     let timeout: NodeJS.Timeout | undefined;
+    let redirectUri = '';
 
     const cleanup = () => {
+      if (activeOAuthFlow?.server === server) activeOAuthFlow = null;
       server.close();
       if (timeout) clearTimeout(timeout);
     };
@@ -263,9 +310,9 @@ export async function initiateLoginFlow(): Promise<UserRow> {
       cleanup();
       reject(err);
     };
+    activeOAuthFlow = { server, fail };
 
     server.on('request', async (req, res) => {
-      const redirectUri = LOOPBACK.redirectUri;
       const reqUrl = new URL(req.url || '/', redirectUri);
       const callbackPath = new URL(redirectUri).pathname;
       if (reqUrl.pathname !== callbackPath) {
@@ -276,45 +323,48 @@ export async function initiateLoginFlow(): Promise<UserRow> {
 
       callbackReceived = true;
       const code = reqUrl.searchParams.get('code');
+      const errParam = reqUrl.searchParams.get('error');
 
       res.setHeader('content-type', 'text/html');
       res.end(code ? SUCCESS_HTML : ERROR_HTML);
-      server.close();
-
-      if (!code) {
-        if (!settled) {
-          settled = true;
-          if (timeout) clearTimeout(timeout);
-          reject(new Error('No code found in callback URL'));
-        }
-        return;
-      }
 
       if (settled) return;
       settled = true;
       if (timeout) clearTimeout(timeout);
 
+      if (!code) {
+        cleanup();
+        reject(new Error(
+          errParam === 'access_denied'
+            ? 'You cancelled the sign-in in the browser.'
+            : 'No code found in callback URL'
+        ));
+        return;
+      }
+
       try {
         const user = await completeLoginOAuth(code, redirectUri);
+        cleanup();
         resolve(user);
       } catch (e) {
+        cleanup();
         reject(e as Error);
       }
     });
 
-    server.listen(LOOPBACK.port, LOOPBACK.host, async () => {
-      const redirectUri = LOOPBACK.redirectUri;
-      console.log('[Login] redirect URI:', redirectUri);
-      const oauth2Client = createOAuthClient(redirectUri);
-      const authUrl = oauth2Client.generateAuthUrl({
-        access_type: 'offline',
-        scope: [
-          'https://www.googleapis.com/auth/userinfo.email',
-          'https://www.googleapis.com/auth/userinfo.profile',
-        ],
-        prompt: 'consent',
-      });
+    server.listen(0, LOOPBACK_HOST, async () => {
       try {
+        redirectUri = resolveRedirectUri(server);
+        console.log('[Login] redirect URI:', redirectUri);
+        const oauth2Client = createOAuthClient(redirectUri);
+        const authUrl = oauth2Client.generateAuthUrl({
+          access_type: 'offline',
+          scope: [
+            'https://www.googleapis.com/auth/userinfo.email',
+            'https://www.googleapis.com/auth/userinfo.profile',
+          ],
+          prompt: 'consent',
+        });
         await shell.openExternal(authUrl);
       } catch (e) {
         fail(e as Error);
@@ -324,11 +374,7 @@ export async function initiateLoginFlow(): Promise<UserRow> {
     timeout = setTimeout(() => fail(new Error('Login timed out. Please try again.')), CALLBACK_TIMEOUT_MS);
 
     server.on('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE') {
-        fail(new Error(`Port ${LOOPBACK.port} is in use. Close it and try again.`));
-      } else {
-        fail(err);
-      }
+      fail(err);
     });
   });
 }

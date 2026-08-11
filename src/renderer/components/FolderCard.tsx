@@ -6,7 +6,11 @@ interface FolderCardProps {
   color: 'orange' | 'green' | 'blue';
   itemCount?: number;
   isStarred?: boolean;
-  onClick?: () => void;
+  /** Multi-select mode — card renders a check badge and selection highlight. */
+  isSelected?: boolean;
+  /** Fired when the corner check badge is clicked (card already stops propagation). */
+  onSelect?: (e: React.MouseEvent) => void;
+  onClick?: (e: React.MouseEvent) => void;
   onContextMenu?: (e: React.MouseEvent) => void;
 }
 
@@ -37,12 +41,28 @@ const FolderSVG: React.FC<{ color: string }> = ({ color }) => (
  * Folder card for the auto-fill grid. Uniform fixed height so rows stay even
  * no matter how many folders exist; long names truncate with a tooltip.
  */
-export const FolderCard: React.FC<FolderCardProps> = ({ name, updated, color, itemCount, isStarred, onClick, onContextMenu }) => (
+export const FolderCard: React.FC<FolderCardProps> = ({ name, updated, color, itemCount, isStarred, isSelected, onSelect, onClick, onContextMenu }) => (
   <div
     onClick={onClick}
     onContextMenu={onContextMenu}
-    className={`group/folder relative flex h-[128px] flex-col justify-between rounded-xl border border-line bg-panel p-4 transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:z-10 hover:border-[#c9d2e0] hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] ${onClick ? 'cursor-pointer' : ''}`}
+    className={`group/folder relative flex h-[128px] flex-col justify-between rounded-xl border bg-panel p-4 transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:z-10 hover:border-[#c9d2e0] hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] ${onClick ? 'cursor-pointer' : ''} ${isSelected ? 'border-accent bg-accent-soft' : 'border-line'}`}
   >
+    {/* Selection badge — appears on hover, stays visible once selected */}
+    {onSelect && (
+      <button
+        className={`absolute left-3 top-3 z-20 flex h-[18px] w-[18px] cursor-pointer items-center justify-center rounded-[5px] border transition-all duration-150 ${
+          isSelected
+            ? 'border-accent bg-accent text-white opacity-100'
+            : 'border-[#c3ccda] bg-white opacity-0 group-hover/folder:opacity-100 hover:border-accent'
+        }`}
+        onClick={(e) => { e.stopPropagation(); onSelect(e); }}
+        aria-label={isSelected ? 'Deselect folder' : 'Select folder'}
+      >
+        {isSelected && (
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        )}
+      </button>
+    )}
     {isStarred && (
       <svg
         width="14"

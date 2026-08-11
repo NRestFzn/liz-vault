@@ -8,6 +8,7 @@ import { ContextMenu } from '../components/ContextMenu';
 import { RenameModal } from '../components/RenameModal';
 import { ThumbnailImage } from '../components/ThumbnailImage';
 import { FileTypeIcon } from '../components/FileTypeIcon';
+import { TruncatedLabel } from '../components/TruncatedLabel';
 import { splitFileName } from '../../shared/fileCategory';
 
 const FOLDER_CARD_COLORS: Array<'orange' | 'green' | 'blue'> = ['orange', 'green', 'blue'];
@@ -249,15 +250,9 @@ export const Starred: React.FC<StarredProps> = ({ viewMode, onViewModeChange }) 
                 
                 {/* Info Area */}
                 <div className={`flex items-center justify-between rounded-b-[11px] border-t p-3 ${selectedFiles.has(file.id) ? 'border-accent/20' : 'border-line'}`}>
-                  <div className="group/tooltip relative flex min-w-0 items-center gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
                     <FileTypeIcon name={file.name} size={16} />
-                    <span className="truncate text-[13px] font-medium text-ink">
-                      {file.name}
-                    </span>
-                    {/* Custom Tooltip */}
-                    <div className="pointer-events-none absolute left-6 top-full z-[100] mt-1.5 invisible w-max max-w-[200px] -translate-y-1 break-words rounded bg-[#333] px-2.5 py-1.5 text-[12px] font-medium leading-relaxed text-white opacity-0 shadow-lg transition-all delay-300 group-hover/tooltip:visible group-hover/tooltip:translate-y-0 group-hover/tooltip:opacity-100">
-                      {file.name}
-                    </div>
+                    <TruncatedLabel text={file.name} className="text-[13px] font-medium text-ink" maxWidthClass="max-w-[200px]" />
                   </div>
                   <div className="flex flex-shrink-0 items-center gap-1.5 pl-2">
                     {file.is_starred === 1 && (

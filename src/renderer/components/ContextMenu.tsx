@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { FileRow as FileRowType } from '../../shared/types';
 import { ConfirmDialog } from './ConfirmDialog';
+import { BatchDeleteModal } from './BatchDeleteModal';
 const { ipcRenderer } = window.require('electron');
 
 interface ContextMenuProps {
@@ -33,7 +34,11 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, o
   }, [onClose]);
 
   const targets = selectedFiles && selectedFiles.length > 0 ? selectedFiles : [file];
+  const isBatch = targets.length > 1;
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // Multi-delete ALWAYS shows the listing re-check modal (it exists so the
+  // user can verify exactly which items are being removed).
+  const [batchOpen, setBatchOpen] = useState(false);
 
   const runDelete = async () => {
     try {
@@ -48,8 +53,14 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, o
     onClose();
   };
 
-  // Read the confirm-before-delete setting; show the custom dialog unless disabled.
+  // Multi-delete → always the listing modal (no settings opt-out).
+  // Single delete → read the confirm-before-delete setting; show the custom
+  // dialog unless disabled.
   const handleDeleteClick = async () => {
+    if (isBatch) {
+      setBatchOpen(true);
+      return;
+    }
     try {
       const res = await ipcRenderer.invoke('settings:get');
       if (res.confirmDelete === false) {
@@ -83,13 +94,11 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, o
     setConfirmOpen(false);
   };
 
-  const isBatch = targets.length > 1;
-  const deleteTitle = isBatch ? `Delete ${targets.length} items` : (isFolder ? 'Delete Folder' : 'Delete File');
-  const deleteMessage = isBatch
-    ? <>These items will be permanently removed from all connected drives. This cannot be undone.</>
-    : isFolder
-      ? <>Delete <span className="font-medium text-ink">“{file.name}”</span> and everything inside it? This cannot be undone.</>
-      : <>Delete <span className="font-medium text-ink">“{file.name}”</span> from all connected drives? This cannot be undone.</>;
+  // Single-delete confirmation copy (batch uses BatchDeleteModal instead).
+  const deleteTitle = isFolder ? 'Delete Folder' : 'Delete File';
+  const deleteMessage = isFolder
+    ? <>Delete <span className="font-medium text-ink">“{file.name}”</span> and everything inside it? This cannot be undone.</>
+    : <>Delete <span className="font-medium text-ink">“{file.name}”</span> from all connected drives? This cannot be undone.</>;
 
   const handleDownload = async () => {
     for (const target of targets) {
@@ -186,14 +195,23 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, o
         {targets.length > 1 ? `Delete ${targets.length} items` : 'Delete'}
       </button>
 
-      {confirmOpen && (
+      {confirmOpen && !isBatch && (
         <ConfirmDialog
           title={deleteTitle}
           message={deleteMessage}
-          confirmLabel={isBatch ? `Delete ${targets.length}` : 'Delete'}
+          confirmLabel="Delete"
           checkboxLabel="Don't ask again"
           onConfirm={handleConfirmDelete}
           onCancel={handleCancelDelete}
+        />
+      )}
+
+      {/* Multi-delete re-check — lists every item being removed */}
+      {batchOpen && isBatch && (
+        <BatchDeleteModal
+          items={targets}
+          onConfirm={runDelete}
+          onCancel={() => setBatchOpen(false)}
         />
       )}
     </div>

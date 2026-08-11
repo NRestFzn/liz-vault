@@ -8,6 +8,7 @@ import { ContextMenu } from '../components/ContextMenu';
 import { RenameModal } from '../components/RenameModal';
 import { ThumbnailImage } from '../components/ThumbnailImage';
 import { FileTypeIcon } from '../components/FileTypeIcon';
+import { TruncatedLabel } from '../components/TruncatedLabel';
 import { splitFileName } from '../../shared/fileCategory';
 
 const { ipcRenderer } = window.require('electron');
@@ -90,9 +91,11 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
     return () => { cancelled = true; };
   }, [folderId, onFolderChange]);
 
-  // Collapse the folder grid again whenever the user navigates.
+  // Collapse the folder grid + drop any selection whenever the user navigates
+  // (selections must not leak across folders).
   useEffect(() => {
     setFoldersExpanded(false);
+    setSelectedFiles(new Set());
   }, [folderId]);
 
   // Fetch per-folder child counts (files + subfolders) for the folder cards.
@@ -216,6 +219,21 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
     setContextMenu({ x: e.clientX, y: e.clientY, file });
   };
 
+  // Toggle a folder in/out of the multi-selection set.
+  const toggleFolderSelect = (folder: FileRowType, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const newSet = new Set(selectedFiles);
+    if (newSet.has(folder.id)) newSet.delete(folder.id);
+    else newSet.add(folder.id);
+    setSelectedFiles(newSet);
+  };
+
+  // Plain click navigates into the folder; Ctrl/Cmd+click selects it instead.
+  const handleFolderClick = (folder: FileRowType, e: React.MouseEvent) => {
+    if (e.metaKey || e.ctrlKey) toggleFolderSelect(folder);
+    else onFolderChange(folder.id, folder.name);
+  };
+
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -300,6 +318,13 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
       return 0;
     });
   }, [files, activeTab, sortField, sortOrder]);
+
+  // Everything visible in the current view (folders + files) — used for
+  // select-all and for passing multi-selection targets to the context menu.
+  const visibleItems = useMemo(
+    () => [...tabFolders, ...filteredAndSortedFiles],
+    [tabFolders, filteredAndSortedFiles]
+  );
 
   return (
     <div onDragOver={handleDragOver} onDrop={handleDrop} className="flex h-full flex-col">
@@ -393,7 +418,9 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
                 color={FOLDER_CARD_COLORS[i % FOLDER_CARD_COLORS.length]}
                 itemCount={folderCounts[folder.id] ?? 0}
                 isStarred={folder.is_starred === 1}
-                onClick={() => onFolderChange(folder.id, folder.name)}
+                isSelected={selectedFiles.has(folder.id)}
+                onClick={(e) => handleFolderClick(folder, e)}
+                onSelect={(e) => toggleFolderSelect(folder, e)}
                 onContextMenu={(e) => handleContextMenu(e, folder)}
               />
             ))}
@@ -441,10 +468,13 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
                   <input 
                     type="checkbox" 
                     className="h-4 w-4 cursor-pointer rounded border-[1.5px] border-line accent-accent" 
-                    checked={filteredAndSortedFiles.length > 0 && selectedFiles.size === filteredAndSortedFiles.length}
+                    checked={visibleItems.length > 0 && visibleItems.every(f => selectedFiles.has(f.id))}
+                    ref={(el) => {
+                      if (el) el.indeterminate = selectedFiles.size > 0 && !visibleItems.every(f => selectedFiles.has(f.id));
+                    }}
                     onChange={(e) => {
                       if (e.target.checked) {
-                        setSelectedFiles(new Set(filteredAndSortedFiles.map(f => f.id)));
+                        setSelectedFiles(new Set(visibleItems.map(f => f.id)));
                       } else {
                         setSelectedFiles(new Set());
                       }
@@ -466,7 +496,14 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
                   updated={formatDate(folder.updated_at || folder.created_at)}
                   itemCount={folderCounts[folder.id] ?? 0}
                   isStarred={folder.is_starred === 1}
-                  onClick={() => onFolderChange(folder.id, folder.name)}
+                  isSelected={selectedFiles.has(folder.id)}
+                  onSelect={(checked) => {
+                    const newSet = new Set(selectedFiles);
+                    if (checked) newSet.add(folder.id);
+                    else newSet.delete(folder.id);
+                    setSelectedFiles(newSet);
+                  }}
+                  onClick={(e) => handleFolderClick(folder, e)}
                   onContextMenu={(e) => handleContextMenu(e, folder)}
                 />
               ))}
@@ -531,15 +568,9 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
                 
                 {/* Info Area */}
                 <div className={`flex items-center justify-between rounded-b-[11px] border-t p-3 ${selectedFiles.has(file.id) ? 'border-accent/20' : 'border-line'}`}>
-                  <div className="group/tooltip relative flex min-w-0 items-center gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
                     <FileTypeIcon name={file.name} size={16} />
-                    <span className="truncate text-[13px] font-medium text-ink">
-                      {file.name}
-                    </span>
-                    {/* Custom Tooltip */}
-                    <div className="pointer-events-none absolute left-6 top-full z-[100] mt-1.5 invisible w-max max-w-[200px] -translate-y-1 break-words rounded bg-[#333] px-2.5 py-1.5 text-[12px] font-medium leading-relaxed text-white opacity-0 shadow-lg transition-all delay-300 group-hover/tooltip:visible group-hover/tooltip:translate-y-0 group-hover/tooltip:opacity-100">
-                      {file.name}
-                    </div>
+                    <TruncatedLabel text={file.name} className="text-[13px] font-medium text-ink" maxWidthClass="max-w-[200px]" />
                   </div>
                   <div className="flex flex-shrink-0 items-center gap-1.5 pl-2">
                     {file.is_starred === 1 && (
@@ -590,7 +621,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
           x={contextMenu.x}
           y={contextMenu.y}
           file={contextMenu.file}
-          selectedFiles={selectedFiles.has(contextMenu.file.id) ? filteredAndSortedFiles.filter(f => selectedFiles.has(f.id)) : undefined}
+          selectedFiles={selectedFiles.has(contextMenu.file.id) ? visibleItems.filter(f => selectedFiles.has(f.id)) : undefined}
           onOpen={contextMenu.file.is_folder === 1 ? () => onFolderChange(contextMenu.file.id, contextMenu.file.name) : undefined}
           onRename={(f) => { setRenameTarget(f); setRenameError(null); }}
           onClose={() => setContextMenu(null)}

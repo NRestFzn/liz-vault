@@ -1,13 +1,13 @@
 import { ipcMain, BrowserWindow } from 'electron';import {
-  getAllAccounts, removeAccount,
+  getAllAccounts, removeAccount, setAccountTokenStatus,
   getAllFiles, searchFilesAndFolders, removeFile, getFile,
   createFolder, getFilesInFolder, getFolderItemCounts, getFolderPath, toggleStarred, getStarredFiles, getStorageStats,
   renameFile, findDuplicateName, getUniqueName,
   addUser, getUser, removeUser, getAppState, setAppState, deleteAppState
 } from '../db/queries';
-import { initiateOAuthFlow, initiateLoginFlow } from '../google/auth';
+import { initiateOAuthFlow, initiateLoginFlow, OAuthCancelledError, abortActiveOAuthFlow, testAccountToken } from '../google/auth';
 import { 
-  IpcAccountRemoveRequest, IpcFileDeleteRequest, IpcAccountRemoveResponse,
+  IpcAccountRemoveRequest, IpcAccountTestResponse, IpcFileDeleteRequest, IpcAccountRemoveResponse,
   IpcFileDeleteResponse, IpcFilesDeleteManyRequest, IpcFilesDeleteManyResponse,
   IpcFileUploadRequest, IpcFileUploadResponse, IpcFileDownloadRequest, IpcFileDownloadResponse,
   IpcFolderCreateRequest, IpcFolderCreateResponse,
@@ -17,7 +17,8 @@ import {
   IpcFileStarRequest, IpcFileStarResponse,
   IpcFilesSearchAllRequest, IpcFilesSearchAllResponse,
   IpcFileRenameRequest, IpcFileRenameResponse,
-  IpcSettingsGetResponse, IpcSettingsSetRequest, IpcSettingsSetResponse
+  IpcSettingsGetResponse, IpcSettingsSetRequest, IpcSettingsSetResponse,
+  IpcCredentialsGetResponse, IpcCredentialsSetRequest, IpcCredentialsSetResponse
 } from '../../shared/types';
 import { uploadFile } from '../vault/upload';
 import { downloadFile } from '../vault/download';
@@ -34,6 +35,12 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
   
   // -- Accounts --
   
+  // Aborts a pending login/connect flow (the user cancelled from the waiting modal).
+  ipcMain.handle('oauth:cancel', async () => {
+    abortActiveOAuthFlow();
+    return { success: true };
+  });
+
   ipcMain.handle('account:add', async () => {
     try {
       const userId = requireUserId();
@@ -41,7 +48,26 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
       mainWindow.webContents.send('account:added', { account });
       return { account };
     } catch (e: any) {
+      // A newer attempt cancelled this one — not an error, just signal it so
+      // the renderer doesn't show a stale "cancelled" message.
+      if (e instanceof OAuthCancelledError) return { cancelled: true };
       return { error: e.message };
+    }
+  });
+
+  // Tests an account's refresh token (expired/revoked detection). The result
+  // is persisted so the expired state survives restarts — but ONLY definitive
+  // auth failures flip the persisted state; transient errors (network, missing
+  // credentials) keep the previous health and just surface the error.
+  ipcMain.handle('account:test', async (_: any, payload: { accountId: number }): Promise<IpcAccountTestResponse> => {
+    try {
+      const userId = requireUserId();
+      const result = await testAccountToken(userId, payload.accountId);
+      if (result.ok) setAccountTokenStatus(payload.accountId, true);
+      else if (result.expired) setAccountTokenStatus(payload.accountId, false);
+      return result;
+    } catch (e: any) {
+      return { ok: false, expired: false, error: e.message };
     }
   });
 
@@ -74,6 +100,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
       mainWindow.webContents.send('user:changed', { user });
       return { user };
     } catch (e: any) {
+      if (e instanceof OAuthCancelledError) return { cancelled: true };
       return { error: e.message };
     }
   });
@@ -281,10 +308,11 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
     try {
       return {
         confirmDelete: getAppState('confirmDelete') !== '0',
-        autoRenameDuplicates: getAppState('autoRenameDuplicates') !== '0'
+        autoRenameDuplicates: getAppState('autoRenameDuplicates') !== '0',
+        autoRefreshQuota: getAppState('autoRefreshQuota') !== '0'
       };
     } catch (e: any) {
-      return { confirmDelete: true, autoRenameDuplicates: true };
+      return { confirmDelete: true, autoRenameDuplicates: true, autoRefreshQuota: true };
     }
   });
 
@@ -296,6 +324,31 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
       if (payload.autoRenameDuplicates !== undefined) {
         setAppState('autoRenameDuplicates', payload.autoRenameDuplicates ? '1' : '0');
       }
+      if (payload.autoRefreshQuota !== undefined) {
+        setAppState('autoRefreshQuota', payload.autoRefreshQuota ? '1' : '0');
+      }
+      return { success: true };
+    } catch (e: any) {
+      return { error: e.message };
+    }
+  });
+
+  // -- Google API credentials (configured in Settings, stored in app_state) --
+
+  ipcMain.handle('credentials:get', async (): Promise<IpcCredentialsGetResponse> => {
+    return {
+      clientId: getAppState('googleClientId') || '',
+      clientSecret: getAppState('googleClientSecret') || '',
+    };
+  });
+
+  ipcMain.handle('credentials:set', async (_: any, payload: IpcCredentialsSetRequest): Promise<IpcCredentialsSetResponse> => {
+    try {
+      // Storing empty values clears the saved credentials (removes them).
+      const clientId = (payload.clientId || '').trim();
+      const clientSecret = (payload.clientSecret || '').trim();
+      setAppState('googleClientId', clientId);
+      setAppState('googleClientSecret', clientSecret);
       return { success: true };
     } catch (e: any) {
       return { error: e.message };

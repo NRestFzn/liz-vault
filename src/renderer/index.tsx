@@ -87,6 +87,12 @@ const App = () => {
             {activeView === 'starred' && <Starred viewMode={viewMode} onViewModeChange={handleViewModeChange} />}
             {activeView === 'settings' && <Settings />}
           </div>
+        ) : activeView === 'settings' ? (
+          // Settings is reachable pre-login so first-run users can paste their
+          // Google API credentials before logging in (login requires them).
+          <div className="no-drag flex-1 overflow-y-auto px-7 pb-7 pt-5">
+            <Settings />
+          </div>
         ) : (
           <div className="flex h-full items-center justify-center text-muted">
             <div className="flex flex-col items-center gap-3">

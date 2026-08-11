@@ -5,7 +5,9 @@ interface FolderRowProps {
   updated: string;
   itemCount: number;
   isStarred?: boolean;
-  onClick?: () => void;
+  isSelected?: boolean;
+  onSelect?: (checked: boolean) => void;
+  onClick?: (e: React.MouseEvent) => void;
   onContextMenu?: (e: React.MouseEvent) => void;
 }
 
@@ -14,13 +16,23 @@ interface FolderRowProps {
  * files line up when both are shown in list mode. Clicking navigates into the
  * folder.
  */
-export const FolderRow: React.FC<FolderRowProps> = ({ name, updated, itemCount, isStarred, onClick, onContextMenu }) => (
+export const FolderRow: React.FC<FolderRowProps> = ({ name, updated, itemCount, isStarred, isSelected, onSelect, onClick, onContextMenu }) => (
   <tr
-    className={`border-b border-line transition-colors duration-100 hover:bg-accent/[0.02] ${onClick ? 'cursor-pointer' : ''}`}
+    className={`border-b border-line transition-colors duration-100 hover:bg-accent/[0.02] ${isSelected ? 'bg-accent-soft' : ''} ${onClick ? 'cursor-pointer' : ''}`}
     onClick={onClick}
     onContextMenu={onContextMenu}
   >
-    <td className="w-9 py-3.5 pl-1" />
+    <td className="w-9 py-3.5 pl-1">
+      {onSelect && (
+        <input
+          type="checkbox"
+          className="h-4 w-4 cursor-pointer rounded border-[1.5px] border-line accent-accent"
+          checked={isSelected}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => onSelect(e.target.checked)}
+        />
+      )}
+    </td>
     <td className="px-3 py-3.5 align-middle">
       <div className="flex items-center gap-2.5">
         <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: 'var(--color-folder-blue)1A' }}>

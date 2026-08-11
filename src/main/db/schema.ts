@@ -85,6 +85,15 @@ export function initDb(): Database.Database {
     db.exec('ALTER TABLE files ADD COLUMN is_starred INTEGER DEFAULT 0');
   }
 
+  // Migration guards for databases created before token-health columns existed
+  const accountColumns = db.pragma('table_info(accounts)') as { name: string }[];
+  if (!accountColumns.some(c => c.name === 'token_ok')) {
+    db.exec('ALTER TABLE accounts ADD COLUMN token_ok INTEGER NOT NULL DEFAULT 1');
+  }
+  if (!accountColumns.some(c => c.name === 'last_checked_at')) {
+    db.exec('ALTER TABLE accounts ADD COLUMN last_checked_at DATETIME');
+  }
+
   return db;
 }
 

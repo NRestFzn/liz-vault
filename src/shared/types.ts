@@ -7,6 +7,9 @@ export interface AccountRow {
   used_bytes: number | null;
   root_folder_id: string | null;
   added_at: string;
+  /** 1 = token verified working, 0 = refresh token expired/revoked (re-login needed). */
+  token_ok: number;
+  last_checked_at: string | null;
 }
 
 /** Login identity — separate from drive storage accounts. */
@@ -21,6 +24,8 @@ export interface UserRow {
 
 export interface IpcUserLoginResponse {
   user?: UserRow;
+  /** Set when a newer login attempt cancelled this one (not an error). */
+  cancelled?: boolean;
   error?: string;
 }
 
@@ -68,6 +73,8 @@ export interface ChunkRow {
 // 1. Accounts
 export interface IpcAccountAddResponse {
   account?: AccountRow;
+  /** Set when a newer connect attempt cancelled this one (not an error). */
+  cancelled?: boolean;
   error?: string;
 }
 
@@ -83,6 +90,13 @@ export interface IpcAccountRemoveResponse {
 
 export interface IpcAccountsListResponse {
   accounts: AccountRow[];
+}
+
+export interface IpcAccountTestResponse {
+  ok: boolean;
+  /** True only for definitive auth failures (expired/revoked token) — this persists the expired state. */
+  expired?: boolean;
+  error?: string;
 }
 
 // 2. Files
@@ -264,14 +278,34 @@ export interface IpcSettingsGetResponse {
   confirmDelete: boolean;
   /** When true, same-named files/folders auto-rename to "name (2)"; when false, a modal warns instead. */
   autoRenameDuplicates: boolean;
+  /** Auto-refresh drive quota + token health on the Quota Tracker (Settings-controlled). */
+  autoRefreshQuota: boolean;
 }
 
 export interface IpcSettingsSetRequest {
   confirmDelete?: boolean;
   autoRenameDuplicates?: boolean;
+  autoRefreshQuota?: boolean;
 }
 
 export interface IpcSettingsSetResponse {
+  success?: boolean;
+  error?: string;
+}
+
+// Google API credentials (configured in Settings; stored in app_state)
+
+export interface IpcCredentialsGetResponse {
+  clientId: string;
+  clientSecret: string;
+}
+
+export interface IpcCredentialsSetRequest {
+  clientId: string;
+  clientSecret: string;
+}
+
+export interface IpcCredentialsSetResponse {
   success?: boolean;
   error?: string;
 }
