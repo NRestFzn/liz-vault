@@ -18,6 +18,7 @@ export function initDb(): Database.Database {
   db.exec(`
     CREATE TABLE IF NOT EXISTS accounts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
       email TEXT UNIQUE NOT NULL,
       refresh_token TEXT NOT NULL,
       total_bytes INTEGER,
@@ -28,12 +29,16 @@ export function initDb(): Database.Database {
 
     CREATE TABLE IF NOT EXISTS files (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       size_bytes INTEGER NOT NULL,
       mime_type TEXT,
       status TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME
+      updated_at DATETIME,
+      is_folder INTEGER DEFAULT 0,
+      parent_folder_id INTEGER REFERENCES files(id) ON DELETE CASCADE,
+      is_starred INTEGER DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS chunks (
@@ -48,6 +53,37 @@ export function initDb(): Database.Database {
       FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
     );
   `);
+
+  // Users table — login identity, separate from drive storage accounts.
+  // One user can own multiple drive accounts. An email already in `accounts`
+  // (drive) is blocked from being used as a login user.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT UNIQUE NOT NULL,
+      refresh_token TEXT NOT NULL,
+      display_name TEXT,
+      avatar_url TEXT,
+      added_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS app_state (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `);
+
+  // Migration guards for databases created before folders/starred columns existed
+  const fileColumns = db.pragma('table_info(files)') as { name: string }[];
+  if (!fileColumns.some(c => c.name === 'is_folder')) {
+    db.exec('ALTER TABLE files ADD COLUMN is_folder INTEGER DEFAULT 0');
+  }
+  if (!fileColumns.some(c => c.name === 'parent_folder_id')) {
+    db.exec('ALTER TABLE files ADD COLUMN parent_folder_id INTEGER REFERENCES files(id) ON DELETE CASCADE');
+  }
+  if (!fileColumns.some(c => c.name === 'is_starred')) {
+    db.exec('ALTER TABLE files ADD COLUMN is_starred INTEGER DEFAULT 0');
+  }
 
   return db;
 }

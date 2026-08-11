@@ -1,17 +1,33 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { 
   getAllAccounts, removeAccount, 
-  getAllFiles, searchFiles, removeFile 
+  getAllFiles, searchFilesAndFolders, removeFile, getFile,
+  createFolder, getFilesInFolder, getFolderItemCounts, getFolderPath, toggleStarred, getStarredFiles, getStorageStats,
+  addUser, getUser, removeUser, getAppState, setAppState, deleteAppState
 } from '../db/queries';
-import { initiateOAuthFlow } from '../google/auth';
+import { initiateOAuthFlow, initiateLoginFlow } from '../google/auth';
 import { 
-  IpcAccountRemoveRequest, IpcFilesSearchRequest, 
-  IpcFileDeleteRequest, IpcAccountRemoveResponse,
-  IpcFileDeleteResponse, IpcFileUploadRequest, IpcFileUploadResponse, IpcFileDownloadRequest, IpcFileDownloadResponse
+  IpcAccountRemoveRequest, IpcFileDeleteRequest, IpcAccountRemoveResponse,
+  IpcFileDeleteResponse, IpcFilesDeleteManyRequest, IpcFilesDeleteManyResponse,
+  IpcFileUploadRequest, IpcFileUploadResponse, IpcFileDownloadRequest, IpcFileDownloadResponse,
+  IpcFolderCreateRequest, IpcFolderCreateResponse,
+  IpcFilesInFolderRequest, IpcFilesInFolderResponse,
+  IpcFolderItemCountsRequest, IpcFolderItemCountsResponse,
+  IpcFolderPathRequest, IpcFolderPathResponse,
+  IpcFileStarRequest, IpcFileStarResponse,
+  IpcFilesSearchAllRequest, IpcFilesSearchAllResponse,
+  IpcSettingsGetResponse, IpcSettingsSetRequest, IpcSettingsSetResponse
 } from '../../shared/types';
 import { uploadFile } from '../vault/upload';
 import { downloadFile } from '../vault/download';
 import { deleteFileChunks } from '../vault/delete';
+import { getThumbnailDataUrl, invalidateThumbnail } from '../vault/thumbnail';
+
+function requireUserId(): number {
+  const idStr = getAppState('activeUserId');
+  if (!idStr) throw new Error('Not logged in. Please log in first.');
+  return parseInt(idStr, 10);
+}
 
 export function registerIpcHandlers(mainWindow: BrowserWindow) {
   
@@ -19,10 +35,10 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
   
   ipcMain.handle('account:add', async () => {
     try {
-      await initiateOAuthFlow();
-      // The actual account data will be sent via 'account:added' event 
-      // from the protocol handler in index.ts after successful callback.
-      return { success: true };
+      const userId = requireUserId();
+      const account = await initiateOAuthFlow(userId);
+      mainWindow.webContents.send('account:added', { account });
+      return { account };
     } catch (e: any) {
       return { error: e.message };
     }
@@ -30,9 +46,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
 
   ipcMain.handle('account:remove', async (_: any, payload: IpcAccountRemoveRequest): Promise<IpcAccountRemoveResponse> => {
     try {
-      // Logic to check for chunks will be added in vault module
-      // For MVP, just delete the account directly
-      removeAccount(payload.accountId);
+      const userId = requireUserId();
+      removeAccount(payload.accountId, userId);
       mainWindow.webContents.send('account:removed', { accountId: payload.accountId });
       return { success: true };
     } catch (e: any) {
@@ -41,22 +56,151 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
   });
 
   ipcMain.handle('accounts:list', async () => {
-    return { accounts: getAllAccounts() };
+    try {
+      const userId = requireUserId();
+      return { accounts: getAllAccounts(userId) };
+    } catch (e) {
+      return { accounts: [] };
+    }
+  });
+
+  // -- User (login identity, separate from drive accounts) --
+
+  ipcMain.handle('user:login', async () => {
+    try {
+      const user = await initiateLoginFlow();
+      setAppState('activeUserId', user.id.toString());
+      mainWindow.webContents.send('user:changed', { user });
+      return { user };
+    } catch (e: any) {
+      return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('user:logout', async () => {
+    try {
+      deleteAppState('activeUserId');
+      mainWindow.webContents.send('user:changed', { user: null });
+      return { success: true };
+    } catch (e: any) {
+      return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('user:current', async () => {
+    try {
+      const idStr = getAppState('activeUserId');
+      if (!idStr) return { user: null };
+      const user = getUser(parseInt(idStr, 10));
+      return { user: user ?? null };
+    } catch (e: any) {
+      return { user: null };
+    }
+  });
+
+  ipcMain.handle('storage:stats', async () => {
+    try {
+      const userId = requireUserId();
+      return { categories: getStorageStats(userId) };
+    } catch (e) {
+      return { categories: { photo: 0, video: 0, document: 0, other: 0 } };
+    }
   });
 
   // -- Files --
   
   ipcMain.handle('files:list', async () => {
-    return { files: getAllFiles() };
+    try {
+      const userId = requireUserId();
+      return { files: getAllFiles(userId) };
+    } catch (e) {
+      return { files: [] };
+    }
   });
 
-  ipcMain.handle('files:search', async (_: any, payload: IpcFilesSearchRequest) => {
-    return { files: searchFiles(payload.query) };
+  // Global search — folders + files with parent-folder names for breadcrumbs.
+  ipcMain.handle('files:search-all', async (_: any, payload: IpcFilesSearchAllRequest): Promise<IpcFilesSearchAllResponse> => {
+    try {
+      const userId = requireUserId();
+      const query = (payload.query || '').trim();
+      if (!query) return { results: [] };
+      return { results: searchFilesAndFolders(userId, query) };
+    } catch (e) {
+      return { results: [] };
+    }
   });
+
+  ipcMain.handle('folder:create', async (_: any, payload: IpcFolderCreateRequest): Promise<IpcFolderCreateResponse> => {
+    try {
+      const userId = requireUserId();
+      if (!payload.name.trim()) return { error: 'Folder name cannot be empty' };
+      const folder = createFolder(userId, payload.name, payload.parentFolderId ?? null);
+      return { folder };
+    } catch (e: any) {
+      return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('files:in-folder', async (_: any, payload: IpcFilesInFolderRequest): Promise<IpcFilesInFolderResponse> => {
+    try {
+      const userId = requireUserId();
+      return { items: getFilesInFolder(userId, payload.folderId) };
+    } catch (e) {
+      return { items: [] };
+    }
+  });
+
+  ipcMain.handle('folders:item-counts', async (_: any, payload: IpcFolderItemCountsRequest): Promise<IpcFolderItemCountsResponse> => {
+    try {
+      const userId = requireUserId();
+      return { counts: getFolderItemCounts(userId, payload.folderIds ?? []) };
+    } catch (e) {
+      return { counts: {} };
+    }
+  });
+
+  // Ancestor chain for the breadcrumb (root → current folder).
+  ipcMain.handle('folders:path', async (_: any, payload: IpcFolderPathRequest): Promise<IpcFolderPathResponse> => {
+    try {
+      const userId = requireUserId();
+      return { path: getFolderPath(userId, payload.folderId ?? null) };
+    } catch (e) {
+      return { path: [] };
+    }
+  });
+
+  ipcMain.handle('files:starred', async () => {
+    try {
+      const userId = requireUserId();
+      return { files: getStarredFiles(userId) };
+    } catch (e) {
+      return { files: [] };
+    }
+  });
+
+  ipcMain.handle('file:star', async (_: any, payload: IpcFileStarRequest): Promise<IpcFileStarResponse> => {
+    try {
+      const userId = requireUserId();
+      const file = toggleStarred(payload.fileId, userId, payload.starred);
+      if (!file) return { error: 'File not found' };
+      mainWindow.webContents.send('file:starred', { file });
+      return { file };
+    } catch (e: any) {
+      return { error: e.message };
+    }
+  });
+
+  // NOTE: delete confirmation is handled in the renderer (custom in-app
+  // ConfirmDialog). These handlers execute the deletion directly.
 
   ipcMain.handle('file:delete', async (_: any, payload: IpcFileDeleteRequest): Promise<IpcFileDeleteResponse> => {
     try {
-      await deleteFileChunks(payload.fileId);
+      const userId = requireUserId();
+      const target = getFile(payload.fileId, userId);
+      if (!target) return { error: 'File not found' };
+
+      const deletedIds = await deleteFileChunks(userId, payload.fileId);
+      for (const id of deletedIds) invalidateThumbnail(id);
       mainWindow.webContents.send('file:deleted', { fileId: payload.fileId });
       return { success: true };
     } catch (e: any) {
@@ -64,10 +208,57 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
     }
   });
 
+  // Batch delete — same as single delete, one IPC call for a multi-selection.
+  ipcMain.handle('file:delete-many', async (_: any, payload: IpcFilesDeleteManyRequest): Promise<IpcFilesDeleteManyResponse> => {
+    try {
+      const userId = requireUserId();
+      const ids = (payload.fileIds || []).filter((id, idx, arr) => arr.indexOf(id) === idx);
+      if (ids.length === 0) return { success: true };
+
+      for (const id of ids) {
+        const deletedIds = await deleteFileChunks(userId, id);
+        for (const did of deletedIds) invalidateThumbnail(did);
+        mainWindow.webContents.send('file:deleted', { fileId: id });
+      }
+      return { success: true };
+    } catch (e: any) {
+      return { error: e.message };
+    }
+  });
+
+  // -- Settings --
+
+  ipcMain.handle('settings:get', async (): Promise<IpcSettingsGetResponse> => {
+    try {
+      return { confirmDelete: getAppState('confirmDelete') !== '0' };
+    } catch (e: any) {
+      return { confirmDelete: true };
+    }
+  });
+
+  ipcMain.handle('settings:set', async (_: any, payload: IpcSettingsSetRequest): Promise<IpcSettingsSetResponse> => {
+    try {
+      setAppState('confirmDelete', payload.confirmDelete ? '1' : '0');
+      return { success: true };
+    } catch (e: any) {
+      return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('file:thumbnail', async (_: any, payload: { fileId: number }) => {
+    try {
+      const userId = requireUserId();
+      const dataUrl = await getThumbnailDataUrl(userId, payload.fileId);
+      return { dataUrl };
+    } catch (e) {
+      return { dataUrl: null };
+    }
+  });
+
   ipcMain.handle('file:upload', async (_: any, payload: IpcFileUploadRequest): Promise<IpcFileUploadResponse> => {
     try {
-      // Run async without blocking IPC return so UI stays responsive
-      uploadFile(mainWindow, payload.filePath, payload.fileName).catch(console.error);
+      const userId = requireUserId();
+      uploadFile(userId, mainWindow, payload.filePath, payload.fileName, payload.parentFolderId ?? null).catch(console.error);
       return {}; 
     } catch (e: any) {
       return { error: e.message };
@@ -76,26 +267,76 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
 
   ipcMain.handle('file:download', async (_: any, payload: IpcFileDownloadRequest): Promise<IpcFileDownloadResponse> => {
     try {
-      // Run async without blocking IPC return
-      downloadFile(mainWindow, payload.fileId, payload.savePath).catch(console.error);
+      const userId = requireUserId();
+      downloadFile(userId, mainWindow, payload.fileId, payload.savePath).catch(console.error);
       return { success: true };
     } catch (e: any) {
       return { error: e.message };
     }
   });
 
-  ipcMain.on('show-context-menu', (event: any, fileId: any) => {
+  ipcMain.handle('file:pick', async () => {
+    const { dialog } = require('electron');
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+      title: 'Select File to Upload',
+      properties: ['openFile']
+    });
+    if (canceled || filePaths.length === 0) {
+      return { filePath: null, fileName: null };
+    }
+    const path = require('path');
+    const filePath = filePaths[0];
+    const fileName = path.basename(filePath);
+    return { filePath, fileName };
+  });
+
+  ipcMain.handle('file:pick-download-path', async (_: any, fileName: string) => {
+    const { dialog } = require('electron');
+    const path = require('path');
+    const ext = path.extname(fileName).toLowerCase().replace('.', '');
+    const filters = ext ? [{ name: `${ext.toUpperCase()} File`, extensions: [ext] }, { name: 'All Files', extensions: ['*'] }] : [{ name: 'All Files', extensions: ['*'] }];
+    const { filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: 'Download File',
+      defaultPath: fileName,
+      filters: filters
+    });
+    return { filePath };
+  });
+
+  ipcMain.on('show-context-menu', (event: any, fileId: any, fileName: string, isStarred: any = 0) => {
     const { Menu, dialog } = require('electron');
     const template = [
       {
         label: 'Download',
         click: async () => {
-          const { filePath } = await dialog.showSaveDialog(mainWindow, {
-            title: 'Download File',
-            defaultPath: 'downloaded_file' // In reality we'd pass the actual filename
-          });
-          if (filePath) {
-            downloadFile(mainWindow, fileId, filePath).catch(console.error);
+          try {
+            const userId = requireUserId();
+            const path = require('path');
+            const ext = path.extname(fileName).toLowerCase().replace('.', '');
+            const filters = ext ? [{ name: `${ext.toUpperCase()} File`, extensions: [ext] }, { name: 'All Files', extensions: ['*'] }] : [{ name: 'All Files', extensions: ['*'] }];
+            const { filePath } = await dialog.showSaveDialog(mainWindow, {
+              title: 'Download File',
+              defaultPath: fileName,
+              filters: filters
+            });
+            if (filePath) {
+              downloadFile(userId, mainWindow, fileId, filePath).catch(console.error);
+            }
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      },
+      { type: 'separator' },
+      {
+        label: isStarred ? 'Unstar' : 'Star',
+        click: () => {
+          try {
+            const userId = requireUserId();
+            const file = toggleStarred(Number(fileId), userId, !isStarred);
+            if (file) mainWindow.webContents.send('file:starred', { file });
+          } catch (e) {
+            console.error(e);
           }
         }
       },
@@ -103,16 +344,14 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
       {
         label: 'Delete',
         click: async () => {
-          const { response } = await dialog.showMessageBox(mainWindow, {
-            type: 'warning',
-            buttons: ['Cancel', 'Delete'],
-            defaultId: 0,
-            title: 'Confirm Delete',
-            message: 'Are you sure you want to delete this file from all connected drives?'
-          });
-          if (response === 1) {
-            await deleteFileChunks(fileId);
+          try {
+            const userId = requireUserId();
+            // Confirmation is handled by the renderer's custom dialog.
+            await deleteFileChunks(userId, fileId);
+            invalidateThumbnail(fileId);
             mainWindow.webContents.send('file:deleted', { fileId });
+          } catch (e) {
+            console.error(e);
           }
         }
       }
@@ -121,5 +360,3 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
     menu.popup({ window: BrowserWindow.fromWebContents(event.sender)! });
   });
 }
-
-

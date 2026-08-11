@@ -1,15 +1,9 @@
-import { app, BrowserWindow, protocol, Menu } from 'electron';
+import { app, BrowserWindow, Menu } from 'electron';
 import path from 'path';
 import { initDb } from './db/schema';
 import { registerIpcHandlers } from './ipc';
-import { handleOAuthCallback } from './google/auth';
 
 let mainWindow: BrowserWindow | null = null;
-
-// Register the lizvault custom protocol for OAuth before app is ready
-protocol.registerSchemesAsPrivileged([
-  { scheme: 'lizvault', privileges: { secure: true, standard: true, bypassCSP: true } }
-]);
 
 function createWindow() {
   Menu.setApplicationMenu(null);
@@ -45,25 +39,6 @@ function createWindow() {
 app.whenReady().then(() => {
   // Initialize Database
   initDb();
-
-  // Register custom protocol handler for OAuth
-  protocol.handle('lizvault', async (req: any) => {
-    try {
-      const account = await handleOAuthCallback(req.url);
-      if (mainWindow) {
-        mainWindow.webContents.send('account:added', { account });
-      }
-    } catch (e) {
-      console.error("OAuth callback failed:", e);
-      if (mainWindow) {
-        mainWindow.webContents.send('account:error', { error: String(e) });
-      }
-    }
-    // Return a dummy response so the protocol handler doesn't crash
-    return new Response('<html><body><h1>Authentication complete! You can close this window.</h1><script>window.close()</script></body></html>', {
-      headers: { 'content-type': 'text/html' }
-    });
-  });
 
   createWindow();
 

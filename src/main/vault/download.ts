@@ -3,17 +3,17 @@ import { BrowserWindow } from 'electron';
 import { getFile, getChunksForFile, getAccount, updateFileStatus } from '../db/queries';
 import { getDriveClient } from '../google/auth';
 
-export async function downloadFile(mainWindow: BrowserWindow, fileId: number, savePath: string) {
-  const fileRow = getFile(fileId);
+export async function downloadFile(userId: number, mainWindow: BrowserWindow, fileId: number, savePath: string) {
+  const fileRow = getFile(fileId, userId);
   if (!fileRow) {
     throw new Error('File not found in database');
   }
 
-  updateFileStatus(fileId, 'downloading');
+  updateFileStatus(fileId, userId, 'downloading');
 
   const chunks = getChunksForFile(fileId);
   if (chunks.length === 0) {
-    updateFileStatus(fileId, 'error');
+    updateFileStatus(fileId, userId, 'error');
     throw new Error('No chunks found for this file');
   }
 
@@ -24,7 +24,7 @@ export async function downloadFile(mainWindow: BrowserWindow, fileId: number, sa
   try {
     let chunkIndex = 0;
     for (const chunk of chunks) {
-      const account = getAccount(chunk.account_id);
+      const account = getAccount(chunk.account_id, userId);
       if (!account) {
         throw new Error(`Account ${chunk.account_id} not found for chunk`);
       }
@@ -40,7 +40,14 @@ export async function downloadFile(mainWindow: BrowserWindow, fileId: number, sa
         response.data
           .on('data', (dataChunk: Buffer) => {
             bytesDownloaded += dataChunk.length;
-            // Emit progress occasionally or on every chunk depending on granularity needed
+            // Emit progress continuously
+            mainWindow.webContents.send('download:progress', {
+              fileId,
+              fileName: fileRow.name,
+              bytesDownloaded,
+              totalBytes,
+              chunkIndex
+            });
           })
           .on('end', () => {
             resolve();
@@ -51,24 +58,17 @@ export async function downloadFile(mainWindow: BrowserWindow, fileId: number, sa
           .pipe(writeStream, { end: false }); // Don't end writeStream until all chunks are done
       });
 
-      mainWindow.webContents.send('download:progress', {
-        fileId,
-        bytesDownloaded,
-        totalBytes,
-        chunkIndex
-      });
-
       chunkIndex++;
     }
 
     writeStream.end();
-    updateFileStatus(fileId, 'ready');
+    updateFileStatus(fileId, userId, 'ready');
     mainWindow.webContents.send('download:complete', { fileId, savePath });
 
   } catch (error: any) {
     console.error('Download error:', error);
     writeStream.end();
-    updateFileStatus(fileId, 'error');
+    updateFileStatus(fileId, userId, 'error');
     mainWindow.webContents.send('download:error', { fileId, error: String(error) });
     throw error;
   }
