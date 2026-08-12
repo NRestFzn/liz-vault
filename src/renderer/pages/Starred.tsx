@@ -73,7 +73,6 @@ export const Starred: React.FC<StarredProps> = ({ viewMode, onViewModeChange }) 
     };
   }, [loadFiles]);
 
-  // Fetch child counts for starred folders (shown in list rows / grid cards).
   useEffect(() => {
     const folderIds = files.filter(f => f.is_folder === 1).map(f => f.id);
     if (folderIds.length === 0) {
@@ -130,13 +129,11 @@ export const Starred: React.FC<StarredProps> = ({ viewMode, onViewModeChange }) 
 
   return (
     <div className="flex h-full flex-col">
-      {/* Page header */}
       <div className="mb-6 flex min-h-[36px] items-center justify-between">
         <h1 className="text-[20px] font-bold tracking-tight text-ink">Starred</h1>
         <ViewToggle viewMode={viewMode} onViewChange={onViewModeChange} />
       </div>
 
-      {/* Starred folders sit on the surface (outside the panel) when in grid view */}
       {viewMode === 'grid' && folders.length > 0 && (
         <>
           <div className="mb-5 grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-4">
@@ -152,14 +149,13 @@ export const Starred: React.FC<StarredProps> = ({ viewMode, onViewModeChange }) 
               />
             ))}
           </div>
-          {/* Section divider between folders and files (only when both sections have content) */}
           {filteredAndSortedFiles.length > 0 && (
             <div className="mb-3 border-t border-line" />
           )}
         </>
       )}
 
-      {/* File list */}
+      {}
       <div className="mt-2 flex-1">
         {viewMode === 'list' ? (
           <table className="w-full border-collapse text-left text-[13px]">
@@ -186,7 +182,6 @@ export const Starred: React.FC<StarredProps> = ({ viewMode, onViewModeChange }) 
               </tr>
             </thead>
             <tbody>
-              {/* Starred folders first as rows */}
               {folders.map(folder => (
                 <FolderRow
                   key={folder.id}
@@ -243,12 +238,10 @@ export const Starred: React.FC<StarredProps> = ({ viewMode, onViewModeChange }) 
                 }}
                 onContextMenu={(e) => handleContextMenu(e, file)}
               >
-                {/* Preview Area */}
                 <div className={`flex h-[130px] w-full items-center justify-center overflow-hidden rounded-t-[11px] transition-colors duration-200 ${selectedFiles.has(file.id) ? 'bg-transparent' : 'bg-panel'}`}>
                   <ThumbnailImage file={file} iconSize={48} />
                 </div>
                 
-                {/* Info Area */}
                 <div className={`flex items-center justify-between rounded-b-[11px] border-t p-3 ${selectedFiles.has(file.id) ? 'border-accent/20' : 'border-line'}`}>
                   <div className="flex min-w-0 items-center gap-2">
                     <FileTypeIcon name={file.name} size={16} />
@@ -283,8 +276,6 @@ export const Starred: React.FC<StarredProps> = ({ viewMode, onViewModeChange }) 
       {renameTarget && (
         <RenameModal
           title={renameTarget.is_folder === 1 ? 'Rename Folder' : 'Rename File'}
-          // Files: base name editable, extension preserved as a muted suffix.
-          // Folders: the whole name is the base ("my.folder" stays intact).
           initialName={renameTarget.is_folder === 1 ? renameTarget.name : splitFileName(renameTarget.name).base}
           suffix={renameTarget.is_folder === 1 ? '' : splitFileName(renameTarget.name).ext}
           error={renameError}

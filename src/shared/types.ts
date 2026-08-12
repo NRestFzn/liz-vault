@@ -7,28 +7,23 @@ export interface AccountRow {
   used_bytes: number | null;
   root_folder_id: string | null;
   added_at: string;
-  /** 1 = token verified working, 0 = refresh token expired/revoked (re-login needed). */
   token_ok: number;
   last_checked_at: string | null;
 }
 
-/** Login identity — separate from drive storage accounts. */
 export interface UserRow {
   id: number;
   email: string;
   refresh_token: string;
   display_name: string | null;
   avatar_url: string | null;
-  /** Drive folder id on the MAIN account that hosts the vault manifest.json. */
   root_folder_id: string | null;
   added_at: string;
 }
 
 export interface IpcUserLoginResponse {
   user?: UserRow;
-  /** True when the vault `LizVault` folder was newly created on the main account. */
   folderCreated?: boolean;
-  /** Set when a newer login attempt cancelled this one (not an error). */
   cancelled?: boolean;
   error?: string;
 }
@@ -48,24 +43,21 @@ export interface FileRow {
   status: FileStatus;
   created_at: string;
   updated_at: string | null;
-  is_folder: number; // 0 | 1
+  is_folder: number;
   parent_folder_id: number | null;
-  is_starred: number; // 0 | 1
+  is_starred: number;
 }
 
 export type ChunkStatus = 'uploaded' | 'pending' | 'error';
 
-/** A file or folder result from global search, plus its immediate parent folder name and full ancestor chain (for breadcrumbs). */
 export interface SearchResultRow extends FileRow {
   parent_name: string | null;
-  /** Full ancestor chain (root → immediate parent). Empty when the item is at root. */
   parent_path: string[];
 }
 
 export interface ChunkRow {
   id: number;
   file_id: number;
-  /** Account that holds this chunk, referenced by email (device-stable — the manifest is portable across devices). */
   account_email: string;
   drive_file_id: string;
   sequence: number;
@@ -73,14 +65,10 @@ export interface ChunkRow {
   status: ChunkStatus;
 }
 
-// IPC Channels
 
-// 1. Accounts
 export interface IpcAccountAddResponse {
   account?: AccountRow;
-  /** True when a new storage folder (`LizVault_Data`) was created on this account's Drive. */
   folderCreated?: boolean;
-  /** Set when a newer connect attempt cancelled this one (not an error). */
   cancelled?: boolean;
   error?: string;
 }
@@ -101,12 +89,10 @@ export interface IpcAccountsListResponse {
 
 export interface IpcAccountTestResponse {
   ok: boolean;
-  /** True only for definitive auth failures (expired/revoked token) — this persists the expired state. */
   expired?: boolean;
   error?: string;
 }
 
-// 2. Files
 export interface IpcFilesListResponse {
   files: FileRow[];
 }
@@ -126,7 +112,6 @@ export interface IpcFolderCreateRequest {
 
 export interface IpcFolderCreateResponse {
   folder?: FileRow;
-  /** Set when creation was rejected because a same-named sibling already exists (modal mode). */
   duplicate?: boolean;
   error?: string;
 }
@@ -188,7 +173,6 @@ export interface IpcFileUploadRequest {
 
 export interface IpcFileUploadResponse {
   fileId?: number;
-  /** Set when the upload was rejected because a same-named sibling already exists (modal mode). */
   duplicate?: boolean;
   error?: string;
 }
@@ -232,7 +216,6 @@ export interface IpcFilesDeleteManyResponse {
   error?: string;
 }
 
-// Events from Main -> Renderer
 export interface IpcUploadProgressEvent {
   fileId: number;
   bytesUploaded: number;
@@ -279,13 +262,10 @@ export interface IpcFileRenamedEvent {
   file: FileRow;
 }
 
-// Settings
 
 export interface IpcSettingsGetResponse {
   confirmDelete: boolean;
-  /** When true, same-named files/folders auto-rename to "name (2)"; when false, a modal warns instead. */
   autoRenameDuplicates: boolean;
-  /** Auto-refresh drive quota + token health on the Quota Tracker (Settings-controlled). */
   autoRefreshQuota: boolean;
 }
 
@@ -300,7 +280,6 @@ export interface IpcSettingsSetResponse {
   error?: string;
 }
 
-// Google API credentials (configured in Settings; stored in app_state)
 
 export interface IpcCredentialsGetResponse {
   clientId: string;

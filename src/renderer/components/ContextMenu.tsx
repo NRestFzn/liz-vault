@@ -22,7 +22,6 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, o
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      // Ignore clicks inside the confirm dialog — it has its own dismissal.
       if (menuRef.current && !menuRef.current.contains(e.target as Node) && !(e.target as Element).closest('[role="alertdialog"]')) {
         onClose();
       }
@@ -38,8 +37,6 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, o
   const targets = selectedFiles && selectedFiles.length > 0 ? selectedFiles : [file];
   const isBatch = targets.length > 1;
   const [confirmOpen, setConfirmOpen] = useState(false);
-  // Multi-delete ALWAYS shows the listing re-check modal (it exists so the
-  // user can verify exactly which items are being removed).
   const [batchOpen, setBatchOpen] = useState(false);
 
   const runDelete = async () => {
@@ -57,9 +54,6 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, o
     onClose();
   };
 
-  // Multi-delete → always the listing modal (no settings opt-out).
-  // Single delete → read the confirm-before-delete setting; show the custom
-  // dialog unless disabled.
   const handleDeleteClick = async () => {
     if (isBatch) {
       setBatchOpen(true);
@@ -73,12 +67,10 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, o
         setConfirmOpen(true);
       }
     } catch {
-      setConfirmOpen(true); // default to confirming on IPC failure
+      setConfirmOpen(true);
     }
   };
 
-  // Persist the opt-out whether the user confirms or cancels (same semantics
-  // as the previous native dialog).
   const persistDontAskAgain = async (dontAskAgain: boolean) => {
     if (!dontAskAgain) return;
     try {
@@ -98,7 +90,6 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, o
     setConfirmOpen(false);
   };
 
-  // Single-delete confirmation copy (batch uses BatchDeleteModal instead).
   const deleteTitle = isFolder ? 'Delete Folder' : 'Delete File';
   const deleteMessage = isFolder
     ? <>Delete <span className="font-medium text-ink">“{file.name}”</span> and everything inside it? This cannot be undone.</>
@@ -133,11 +124,9 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, o
 
 
 
-  // Ensure menu stays within viewport bounds
   let safeX = x;
   let safeY = y;
   
-  // Approximate width/height of the context menu
   const menuWidth = 160; 
   const menuHeight = 130;
   
@@ -182,7 +171,6 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, o
       
       <div className="my-1 h-[1px] w-full bg-line" />
 
-      {/* Rename is single-target only (batch rename doesn't make sense). */}
       {targets.length === 1 && onRename && (
         <button
           onClick={() => { onRename(file); onClose(); }}
@@ -212,7 +200,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, o
         />
       )}
 
-      {/* Multi-delete re-check — lists every item being removed */}
+      {}
       {batchOpen && isBatch && (
         <BatchDeleteModal
           items={targets}

@@ -25,15 +25,11 @@ const App = () => {
   };
   const [user, setUser] = useState<UserRow | null>(null);
 
-  // Folder navigation is lifted here so the global search bar can navigate
-  // the file explorer from any view (Google Drive style).
   const [folderState, setFolderState] = useState<{ id: number | null; name: string | null }>({ id: null, name: null });
   const [highlightFileId, setHighlightFileId] = useState<number | null>(null);
-  // File clicked from global search opens the detail modal.
   const [detailFile, setDetailFile] = useState<SearchResultRow | null>(null);
 
   const handleSearchNavigate = useCallback((result: SearchResultRow) => {
-    // Only folders navigate directly; files open the detail modal instead.
     if (result.is_folder !== 1) return;
     setActiveView('files');
     setFolderState({ id: result.id, name: result.name });
@@ -46,7 +42,6 @@ const App = () => {
   }, []);
 
   const handleDetailOpenLocation = useCallback((file: SearchResultRow) => {
-    // From the modal: jump to the parent folder and highlight the row.
     setDetailFile(null);
     setFolderState({ id: file.parent_folder_id, name: file.parent_name });
     setHighlightFileId(file.id);
@@ -89,8 +84,6 @@ const App = () => {
             {activeView === 'settings' && <Settings />}
           </div>
         ) : activeView === 'settings' ? (
-          // Settings is reachable pre-login so first-run users can paste their
-          // Google API credentials before logging in (login requires them).
           <div className="no-drag flex-1 overflow-y-auto px-7 pb-7 pt-5">
             <Settings />
           </div>
@@ -119,8 +112,6 @@ const rootEl = document.getElementById('root');
 if (rootEl) {
   const root = createRoot(rootEl);
   root.render(
-    // The transfer queue renders inside the toast provider's top-right column,
-    // below the toast stack, so the two never overlap.
     <ToastProvider queueSlot={<TransferQueue />}>
       <App />
     </ToastProvider>

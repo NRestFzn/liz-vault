@@ -5,22 +5,14 @@ import { FileTypeIcon } from './FileTypeIcon';
 
 const { ipcRenderer } = window.require('electron');
 
-// fileId -> data URL. Shared across pages so navigating away and back is instant.
 const thumbnailCache = new Map<number, string>();
 
 interface ThumbnailImageProps {
   file: FileRow;
-  /** Size of the fallback icon (when no preview is available). */
   iconSize?: number;
-  /** Class for the rendered <img> (defaults to object-cover fill). */
   imgClassName?: string;
 }
 
-/**
- * Grid-view preview. Shows the actual image for browser-decodable photos
- * (downloaded from Drive chunk 0, lazily when scrolled into view) and a
- * color-coded per-extension icon for everything else.
- */
 export const ThumbnailImage: React.FC<ThumbnailImageProps> = ({ file, iconSize = 48, imgClassName }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [src, setSrc] = useState<string | null>(thumbnailCache.get(file.id) ?? null);
@@ -30,7 +22,7 @@ export const ThumbnailImage: React.FC<ThumbnailImageProps> = ({ file, iconSize =
   const canThumbnail = isBrowserDecodableImage(file.name);
 
   useEffect(() => {
-    if (src) return; // already have the preview
+    if (src) return;
     if (!isBrowserDecodableImage(file.name)) return;
     if (started) return;
 
@@ -81,10 +73,8 @@ export const ThumbnailImage: React.FC<ThumbnailImageProps> = ({ file, iconSize =
           onError={() => setFailed(true)}
         />
       ) : canThumbnail && started && !failed ? (
-        // Loading skeleton
         <div className="h-7 w-7 animate-pulse rounded-full bg-[#e3e6ea]" />
       ) : (
-        // Non-decodable image (heic/raw/tiff) or fetch failure -> icon
         <FileTypeIcon name={file.name} size={iconSize} />
       )}
     </div>

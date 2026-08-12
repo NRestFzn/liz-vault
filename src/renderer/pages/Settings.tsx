@@ -3,10 +3,6 @@ import { useToast } from '../components/Toast';
 
 const { ipcRenderer } = window.require('electron');
 
-/**
- * Settings page — confirm-before-delete toggle and the duplicate-name policy
- * (auto-rename vs. warn-with-modal). Reads/writes app_state via IPC.
- */
 export const Settings: React.FC = () => {
   const [confirmDelete, setConfirmDelete] = useState(true);
   const [autoRenameDuplicates, setAutoRenameDuplicates] = useState(true);
@@ -14,7 +10,6 @@ export const Settings: React.FC = () => {
   const [loaded, setLoaded] = useState(false);
   const { toastError, toastSuccess } = useToast();
 
-  // Google API credentials
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [showSecret, setShowSecret] = useState(false);
@@ -61,13 +56,13 @@ export const Settings: React.FC = () => {
         toastError(res.error);
         if (key === 'confirmDelete') setConfirmDelete(prev);
         else if (key === 'autoRenameDuplicates') setAutoRenameDuplicates(prev);
-        else setAutoRefreshQuota(prev); // roll back on failure
+        else setAutoRefreshQuota(prev);
       }
     } catch (e: any) {
       toastError(String(e));
       if (key === 'confirmDelete') setConfirmDelete(prev);
       else if (key === 'autoRenameDuplicates') setAutoRenameDuplicates(prev);
-      else setAutoRefreshQuota(prev); // roll back on failure
+      else setAutoRefreshQuota(prev);
     }
   };
 
@@ -91,8 +86,6 @@ export const Settings: React.FC = () => {
     </button>
   );
 
-  // Info icon (i) after a setting title — shows the detail on hover/focus.
-  // Styling matches the custom tooltips used on file cards/rows.
   const InfoTip = ({ text }: { text: string }) => (
     <button
       type="button"
@@ -111,11 +104,9 @@ export const Settings: React.FC = () => {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Page header */}
       <div className="mb-6 flex min-h-[36px] items-center justify-between">
         <h1 className="text-[20px] font-bold tracking-tight text-ink">Settings</h1>
       </div>        <div className="flex max-w-[560px] flex-col gap-5">
-        {/* Google API credentials */}
         <div className="rounded-xl border border-line bg-panel">
           <div className="flex min-w-0 items-center gap-1.5 border-b border-line p-5 pb-4">
             <div className="text-[14px] font-semibold text-ink">Google API</div>
@@ -170,9 +161,7 @@ export const Settings: React.FC = () => {
           </div>
         </div>
 
-        {/* Behavior toggles */}
         <div className="rounded-xl border border-line bg-panel">
-          {/* Delete confirmation */}
           <div className="flex items-center justify-between gap-4 border-b border-line p-5">
             <div className="flex min-w-0 items-center gap-1.5">
               <div className="text-[14px] font-semibold text-ink">Ask before deleting</div>
@@ -183,7 +172,6 @@ export const Settings: React.FC = () => {
             <Toggle checked={confirmDelete} onToggle={() => handleToggle('confirmDelete', !confirmDelete)} />
           </div>
 
-          {/* Duplicate names */}
           <div className="flex items-center justify-between gap-4 border-b border-line p-5">
             <div className="flex min-w-0 items-center gap-1.5">
               <div className="text-[14px] font-semibold text-ink">Auto-rename duplicates</div>
@@ -194,7 +182,6 @@ export const Settings: React.FC = () => {
             <Toggle checked={autoRenameDuplicates} onToggle={() => handleToggle('autoRenameDuplicates', !autoRenameDuplicates)} />
           </div>
 
-          {/* Quota auto-refresh */}
           <div className="flex items-center justify-between gap-4 p-5">
             <div className="flex min-w-0 items-center gap-1.5">
               <div className="text-[14px] font-semibold text-ink">Auto-refresh quota</div>

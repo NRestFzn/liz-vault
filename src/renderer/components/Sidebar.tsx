@@ -7,9 +7,6 @@ import { useToast } from './Toast';
 
 const { ipcRenderer } = window.require('electron');
 
-// Resolve the logo relative to the HTML document so it works from both
-// src/renderer (dev) and dist/renderer (packaged) — the icon lives in
-// assets/ at the project root.
 const APP_ICON = new URL('../../assets/icons/LizVault_Logo.png', window.location.href).href;
 
 interface SidebarProps {
@@ -36,8 +33,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
   const [user, setUser] = useState<UserRow | null>(null);
   const [loginLoading, setLoginLoading] = useState(false);
   const { toastError } = useToast();
-  // Set when first login created the vault folder on the main account — the
-  // modal explains what was created and why (replaces a transient toast).
   const [showVaultReady, setShowVaultReady] = useState(false);
 
   const load = useCallback(async () => {
@@ -47,11 +42,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
       const stats = await ipcRenderer.invoke('storage:stats');
       if (stats.categories) setCategories(stats.categories);
     } catch {
-      // Ignore transient IPC failures; the next poll will retry.
     }
   }, []);
 
-  // Load current user on mount
   useEffect(() => {
     ipcRenderer.invoke('user:current').then((res: { user: UserRow | null }) => {
       setUser(res.user);
@@ -67,7 +60,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
     ipcRenderer.on('upload:complete', refresh);
     ipcRenderer.on('file:deleted', refresh);
 
-    // Listen for user state changes (login/logout from any source)
     const onUserChanged = (_: any, data: { user: UserRow | null }) => {
       setUser(data.user);
     };
@@ -89,15 +81,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
     setLoginLoading(true);
     try {
       const res = await ipcRenderer.invoke('user:login');
-      // A retry aborts the previous attempt — its response is `cancelled`,
-      // which should never surface as an error (and must not linger after a
-      // successful login either).
       if (res.cancelled) return;
       if (res.error) {
         toastError(res.error);
       } else if (res.folderCreated) {
-        // First login on this Google account — the main account now hosts the
-        // vault folder + manifest. Show the explainer modal (read → check → close).
         setShowVaultReady(true);
       }
     } finally {
@@ -105,10 +92,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
     }
   };
 
-  // User pressed Cancel on the waiting modal — abort the pending flow via
-  // IPC; the pending `user:login` invoke settles with `cancelled` and hides.
-  // The state reset runs even if the IPC itself fails, so the modal can never
-  // get stuck open.
   const handleCancelLogin = async () => {
     try {
       await ipcRenderer.invoke('oauth:cancel');
@@ -138,7 +121,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
 
   return (
     <aside className="no-drag relative flex h-full w-[240px] min-w-[240px] flex-col border-r border-line bg-panel">
-      {/* Logo */}
       <div className="flex h-[72px] items-center gap-2.5 border-b border-line px-6">
         <img
           src={APP_ICON}
@@ -149,7 +131,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
         <span className="text-[16px] font-bold tracking-tight text-ink">LizVault</span>
       </div>
 
-      {/* User section */}
       {user ? (
         <div className="mx-3 my-4 flex items-center gap-2.5 rounded-lg p-3 transition-colors duration-150 hover:bg-surface">
           <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[#c4b5fd] text-[14px] font-semibold text-[#5b21b6]">
@@ -163,7 +144,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
             {user.display_name && (
               <div className="truncate text-[12px] font-medium text-ink">{user.display_name}</div>
             )}
-            {/* Hover a truncated email to see the full address (tooltip below, auto width) */}
+            {}
             <TruncatedLabel text={user.email} className="text-[11px] text-muted" position="below" />
           </div>
         </div>
@@ -185,7 +166,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
 
       <div className="mx-6 mb-4 h-px bg-line" />
 
-      {/* Navigation */}
       <nav className="flex flex-col gap-0.5 px-3">
         {NAV_ITEMS.map(item => (
           <div
@@ -201,7 +181,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
         ))}
       </nav>
 
-      {/* Footer */}
       <div className="mt-auto border-t border-line px-5 pb-5 pt-4">
         <div className="mb-4 flex flex-col gap-1.5">
           {legend.map(item => (
@@ -240,7 +219,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
         )}
       </div>
 
-      {/* Desktop-style OAuth waiting modal while the browser is open */}
       {loginLoading && (
         <OAuthWaitingModal
           title="Sign in to LizVault"
@@ -248,8 +226,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
         />
       )}
 
-      {/* First-login explainer: the vault folder + manifest were created on the
-          main account's Drive — let the user read it, then close. */}
+      {}
       {showVaultReady && user && (
         <VaultReadyModal
           email={user.email}

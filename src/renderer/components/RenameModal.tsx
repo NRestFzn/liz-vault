@@ -2,9 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 
 interface RenameModalProps {
   title: string;
-  /** Base name shown in the input (for files: WITHOUT the extension). */
   initialName: string;
-  /** Muted suffix appended on confirm — for files this is the extension (e.g. ".zip"). Folders pass ''. */
   suffix?: string;
   error?: string | null;
   confirmLabel?: string;
@@ -12,29 +10,19 @@ interface RenameModalProps {
   onCancel: () => void;
 }
 
-/**
- * Small rename modal — same style as the New Folder modal. For files the
- * extension is split off into a muted suffix so it can never be lost while
- * editing the base name (Enter confirms, Esc cancels). The full name
- * (base + suffix) is what onConfirm receives.
- */
 export const RenameModal: React.FC<RenameModalProps> = ({ title, initialName, suffix = '', error, confirmLabel = 'Rename', onConfirm, onCancel }) => {
   const [name, setName] = useState(initialName);
   const inputRef = useRef<HTMLInputElement>(null);
-  // Keep the latest name readable from the (mount-only) keydown listener
-  // without re-registering it on every keystroke.
   const nameRef = useRef(name);
   nameRef.current = name;
 
   const fullName = () => name.trim() + suffix;
 
-  // Autofocus + select-all — mount only, so typing never re-selects.
   useEffect(() => {
     inputRef.current?.focus();
     inputRef.current?.select();
   }, []);
 
-  // Enter confirms / Esc cancels — registered once, reads the live name via ref.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Enter' && nameRef.current.trim() !== '') onConfirm(nameRef.current.trim() + suffix);

@@ -9,17 +9,11 @@ interface ConfirmDialogProps {
   onCancel: (dontAskAgain: boolean) => void;
 }
 
-/**
- * Custom in-app confirmation modal (replaces the native OS message box so it
- * matches the app's design). Optional "Don't ask again" checkbox, Esc to
- * cancel, autofocus on the destructive button.
- */
 export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({ title, message, confirmLabel = 'Delete', checkboxLabel, onConfirm, onCancel }) => {
   const [dontAskAgain, setDontAskAgain] = useState(false);
   const confirmRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  // Autofocus the confirm button + Esc-to-cancel.
   useEffect(() => {
     confirmRef.current?.focus();
     const onKeyDown = (e: KeyboardEvent) => {
@@ -29,7 +23,6 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({ title, message, co
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onCancel, dontAskAgain]);
 
-  // Clicking the dimmed backdrop cancels.
   const handleBackdropClick = (e: React.MouseEvent) => {
     if (dialogRef.current && !dialogRef.current.contains(e.target as Node)) {
       onCancel(dontAskAgain);

@@ -3,19 +3,10 @@ import React, { useEffect, useRef, useState } from 'react';
 interface TruncatedLabelProps {
   text: string;
   className?: string;
-  /** Tooltip placement relative to the label. Default 'above' (safe inside cards/scroll containers). */
   position?: 'above' | 'below';
-  /** Optional width cap for long values (e.g. file names). Omit for auto width (short values like emails). */
   maxWidthClass?: string;
 }
 
-/**
- * A truncating label that shows a custom hover tooltip with the FULL text ONLY
- * when the text is actually truncated (Google Drive style). Truncation is
- * detected by measuring the element (scrollWidth vs clientWidth) and kept in
- * sync via a ResizeObserver, so it stays correct when the grid resizes or the
- * window is resized.
- */
 export const TruncatedLabel: React.FC<TruncatedLabelProps> = ({ text, className = '', position = 'above', maxWidthClass }) => {
   const labelRef = useRef<HTMLSpanElement>(null);
   const [truncated, setTruncated] = useState(false);
@@ -31,8 +22,8 @@ export const TruncatedLabel: React.FC<TruncatedLabelProps> = ({ text, className 
   }, [text]);
 
   const placement = position === 'below'
-    ? 'top-full mt-1.5'        // below the label
-    : 'bottom-full mb-1.5';    // above the label
+    ? 'top-full mt-1.5'
+    : 'bottom-full mb-1.5';
 
   return (
     <span className="group/trunc relative block min-w-0 flex-1">

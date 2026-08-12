@@ -12,17 +12,10 @@ interface Transfer {
   speedMBps?: number;
 }
 
-/**
- * Transfer progress items. Renders ONLY the items (no positioning): the
- * ToastProvider owns the top-right column and renders this queueSlot below
- * the toast stack, so toasts and progress never overlap.
- */
 export const TransferQueue: React.FC = () => {
   const [transfers, setTransfers] = useState<Record<string, Transfer>>({});
   const { toastError } = useToast();
 
-  // Only touches setTransfers (stable), so it can be memoized once and safely
-  // referenced from the IPC listener effect below.
   const removeTransfer = useCallback((id: string) => {
     setTransfers(prev => {
       const next = { ...prev };
@@ -97,8 +90,6 @@ export const TransferQueue: React.FC = () => {
   if (transferList.length === 0) return null;
 
   return (
-    // The provider's column is pointer-events-none; items opt back in so the
-    // cancel buttons stay clickable.
     <div className="pointer-events-auto flex max-h-[400px] flex-col gap-2 overflow-y-auto">
       {transferList.map(t => (
         <ProgressItem

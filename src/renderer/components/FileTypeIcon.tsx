@@ -92,7 +92,6 @@ interface FileTypeIconProps {
   className?: string;
 }
 
-/** Color-coded per-extension file icon (flat SVG, no emojis). */
 export const FileTypeIcon: React.FC<FileTypeIconProps> = ({ name, size = 16, className }) => {
   const info = getFileTypeInfo(name);
   return (

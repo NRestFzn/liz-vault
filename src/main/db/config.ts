@@ -3,20 +3,8 @@ import path from 'path';
 import { app } from 'electron';
 import { AccountRow, UserRow } from '../../shared/types';
 
-/**
- * config.json — machine-local state that must exist BEFORE any Drive access:
- * Google API credentials, the active login, known login identities, connected
- * Drive accounts (their refresh tokens are the keys that LOCATE the vault
- * manifest on Drive — tokens intentionally stay out of the Drive manifest),
- * and per-machine settings flags.
- *
- * The vault itself (files + chunks) lives in manifest.json on Drive — see
- * ./manifest.ts. Together they replace the old SQLite database entirely.
- */
 
 export function nowUtc(): string {
-  // 'YYYY-MM-DD HH:MM:SS' in UTC — same format SQLite's CURRENT_TIMESTAMP
-  // produced, so the renderer's UTC-detection in formatDate keeps working.
   return new Date().toISOString().slice(0, 19).replace('T', ' ');
 }
 
@@ -57,7 +45,6 @@ function configPath(): string {
   return path.join(userDataDir(), 'config.json');
 }
 
-/** Load (or create) the local config file. Pass overrideDir in tests. */
 export function initConfig(overrideDir?: string): void {
   if (overrideDir) dir = overrideDir;
   const file = configPath();
@@ -70,9 +57,6 @@ export function initConfig(overrideDir?: string): void {
       data = emptyConfig();
     }
   }
-  // Normalize id counters so manually-edited files can never collide ids.
-  // The counter holds the NEXT id to assign, so it is max(existing)+1 (or 1
-  // when empty) — the stored default only applies before the first save.
   data.nextUserId = Math.max(0, ...data.users.map(u => u.id)) + 1;
   data.nextAccountId = Math.max(0, ...data.accounts.map(a => a.id)) + 1;
   saveConfig();
@@ -90,7 +74,6 @@ function saveConfig(): void {
   }
 }
 
-// -- Google API credentials (configured in Settings) --
 
 export function getGoogleCredentials(): { clientId: string; clientSecret: string } {
   return { clientId: data.googleClientId, clientSecret: data.googleClientSecret };
@@ -102,7 +85,6 @@ export function setGoogleCredentials(clientId: string, clientSecret: string): vo
   saveConfig();
 }
 
-// -- Active user (login session) --
 
 export function getActiveUserId(): number | null {
   return data.activeUserId;
@@ -113,18 +95,13 @@ export function setActiveUserId(id: number | null): void {
   saveConfig();
 }
 
-// -- Login identities (users) --
 
 export function addUser(user: Omit<UserRow, 'id' | 'added_at'>): UserRow {
-  // Block an email already used as a drive storage account (same rule as before).
   if (data.accounts.some(a => a.email === user.email)) {
     throw new Error(`This Google account (${user.email}) is already connected as a drive storage account. Use a different account to log in.`);
   }
   const existing = data.users.find(u => u.email === user.email);
   if (existing) {
-    // Upsert by email: repair the refresh token + profile in place. Only
-    // overwrite the vault folder when a real one is supplied (login re-creates
-    // it) — a null must not erase an existing folder id.
     existing.refresh_token = user.refresh_token;
     existing.display_name = user.display_name;
     existing.avatar_url = user.avatar_url;
@@ -150,11 +127,6 @@ export function getUser(id: number): UserRow | undefined {
   return data.users.find(u => u.id === id);
 }
 
-/**
- * Point the login user at their vault folder (created on the main account's
- * Drive). Passing null clears it (used when the folder was deleted on Drive so
- * the next save re-creates it).
- */
 export function setUserRootFolder(userId: number, rootFolderId: string | null): void {
   const user = data.users.find(u => u.id === userId);
   if (!user) return;
@@ -163,19 +135,14 @@ export function setUserRootFolder(userId: number, rootFolderId: string | null): 
 }
 
 export function removeUser(id: number): void {
-  // Accounts owned by this user go too (their Drive chunks stay orphaned on
-  // Drive, exactly like the old CASCADE behavior — the UI warns about this).
   data.accounts = data.accounts.filter(a => a.user_id !== id);
   data.users = data.users.filter(u => u.id !== id);
   if (data.activeUserId === id) data.activeUserId = null;
   saveConfig();
 }
 
-// -- Drive storage accounts --
 
 export function addAccount(account: Omit<AccountRow, 'id' | 'added_at' | 'token_ok' | 'last_checked_at'>): AccountRow {
-  // Upsert by email (email is the stable key): re-connecting an account
-  // REPAIRS it in place — fresh refresh token, token marked healthy.
   const existing = data.accounts.find(a => a.email === account.email);
   const now = new Date().toISOString();
   if (existing) {
@@ -239,7 +206,6 @@ export function updateAccountUsage(id: number, userId: number, usedBytes: number
   saveConfig();
 }
 
-/** Point an account at a (re-created) root folder — used by the upload 404-retry path. */
 export function updateAccountRootFolder(accountId: number, userId: number, rootFolderId: string): void {
   const account = data.accounts.find(a => a.id === accountId && a.user_id === userId);
   if (!account) return;
@@ -247,7 +213,6 @@ export function updateAccountRootFolder(accountId: number, userId: number, rootF
   saveConfig();
 }
 
-// -- Settings / misc app state (per-machine preferences) --
 
 export function getAppState(key: string): string | null {
   return data.app_state[key] ?? null;

@@ -11,11 +11,6 @@ interface FolderRowProps {
   onContextMenu?: (e: React.MouseEvent) => void;
 }
 
-/**
- * List-view folder row — same column layout as the file table so folders and
- * files line up when both are shown in list mode. Clicking navigates into the
- * folder.
- */
 export const FolderRow: React.FC<FolderRowProps> = ({ name, updated, itemCount, isStarred, isSelected, onSelect, onClick, onContextMenu }) => (
   <tr
     className={`border-b border-line transition-colors duration-100 hover:bg-accent/[0.02] ${isSelected ? 'bg-accent-soft' : ''} ${onClick ? 'cursor-pointer' : ''}`}

@@ -5,13 +5,6 @@ interface OAuthWaitingModalProps {
   onCancel: () => void;
 }
 
-/**
- * Desktop-app OAuth waiting modal (VS Code / Google Drive style): shown while
- * the system browser is open for Google sign-in. Single state — spinner +
- * "Continue signing in with your browser." — with a Cancel button that aborts
- * the flow via the `oauth:cancel` IPC and cleans up the loopback listener.
- * The user cancels manually; the app doesn't try to detect browser closure.
- */
 export const OAuthWaitingModal: React.FC<OAuthWaitingModalProps> = ({ title, onCancel }) => {
   return (
     <div className="fixed inset-0 z-[20001] flex items-center justify-center bg-black/40 backdrop-blur-[2px]">

@@ -3,21 +3,6 @@ import { getFileCategory, splitFileName } from '../../shared/fileCategory';
 import { getDriveClient, findOrCreateFolder } from '../google/auth';
 import { getActiveUserId, getUser, nowUtc, setUserRootFolder } from './config';
 
-/**
- * manifest.json — the vault itself, hosted on the MAIN account's Drive in a
- * `LizVault` folder (the login identity owns the manifest; connected storage
- * accounts are pure chunk space). It holds the logical file/folder tree
- * (files[]) and the chunk→Drive-file mapping (chunks[]).
- *
- * The store is a synchronous in-memory copy of the manifest: reads never hit
- * the network, and every mutation marks the manifest dirty and schedules an
- * async upload (debounced) to the main account. This replaces the SQLite
- * `files` and `chunks` tables.
- *
- * Chunks reference their account by EMAIL (not a local numeric id) so the
- * manifest is portable: on another device, log in with the main account and
- * the whole vault comes back, no id remapping needed.
- */
 
 const MANIFEST_FILE_NAME = 'manifest.json';
 const VAULT_FOLDER_NAME = 'LizVault';
@@ -35,7 +20,6 @@ let chunks: ChunkRow[] = [];
 let nextFileId = 1;
 let nextChunkId = 1;
 let loaded = false;
-/** user id -> Drive file id of the user's manifest.json (for updates). */
 const manifestFileIds = new Map<number, string>();
 let dirty = false;
 let saveTimer: NodeJS.Timeout | null = null;
@@ -50,16 +34,10 @@ export function initManifest(): void {
   manifestFileIds.clear();
 }
 
-/** Force a re-download on the next ensureManifestLoaded() (e.g. after connecting an account). */
 export function invalidateManifestLoaded(): void {
   loaded = false;
 }
 
-/**
- * Download the vault manifest from the MAIN account's Drive folder and load
- * it into memory. No-op once loaded. Safe to call from every IPC handler — it
- * resolves immediately after the first load.
- */
 export async function ensureManifestLoaded(): Promise<void> {
   if (loaded) return;
   const userId = getActiveUserId();
@@ -69,8 +47,6 @@ export async function ensureManifestLoaded(): Promise<void> {
   }
   const user = getUser(userId);
   if (user && user.refresh_token) {
-    // Self-heal: main account has no vault folder yet (older install, or
-    // folder creation failed at login) — create/find it now.
     const rootFolderId = user.root_folder_id ?? (await ensureVaultFolderForUser(user));
     if (rootFolderId) {
       try {
@@ -81,8 +57,6 @@ export async function ensureManifestLoaded(): Promise<void> {
           const buffer = await streamToBuffer(res.data);
           const parsed = tryParseManifest(buffer.toString('utf-8'));
           if (!parsed) {
-            // Corrupt/unrecognized manifest — keep whatever is in memory
-            // rather than silently wiping the view.
             console.error(`[Manifest] ${user.email}: manifest.json is corrupt or invalid — skipping`);
           } else {
             importManifest(parsed);
@@ -97,8 +71,6 @@ export async function ensureManifestLoaded(): Promise<void> {
       }
     }
   }
-  // No manifest found — fresh vault or offline. Mark loaded so we don't retry
-  // on every IPC; a later login/connect re-arms the load.
   loaded = true;
   console.log('[Manifest] No vault manifest found on Drive — starting empty');
 }
@@ -110,35 +82,22 @@ function tryParseManifest(raw: string): VaultManifest | null {
       return parsed as VaultManifest;
     }
   } catch {
-    // fallthrough to null
   }
   return null;
 }
 
-/**
- * Replace the in-memory store with a downloaded manifest.
- *
- * NOTE: the vault is a single-logical-user store — every file is reassigned
- * to whoever is active on this device. Two login identities sharing one Drive
- * account folder would clobber each other's manifests; that is an accepted
- * constraint of the personal-vault design.
- */
 function importManifest(manifest: VaultManifest): void {
   const activeUserId = getActiveUserId();
-  // Files belong to whoever is logged in on this device — reassign user_id so
-  // a manifest written on another device still scopes to the local user.
   files = (manifest.files || []).map(f => ({ ...f, user_id: activeUserId ?? f.user_id }));
   chunks = manifest.chunks || [];
   nextFileId = Math.max(1, ...files.map(f => f.id), 0) + 1;
   nextChunkId = Math.max(1, ...chunks.map(c => c.id), 0) + 1;
 }
 
-/** Clear the in-memory vault — used when switching the logged-in user. */
 export function resetVaultStore(): void {
   initManifest();
 }
 
-// -- Drive persistence --
 
 async function findManifestFile(drive: any, rootFolderId: string): Promise<string | null> {
   const list = await drive.files.list({
@@ -167,16 +126,6 @@ function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
   });
 }
 
-/**
- * Ensure the account's LizVault folder contains a manifest.json — creates an
- * empty one when missing (called after connecting a Drive account). Never
- * overwrites an existing manifest.
- */
-/**
- * Create/find the MAIN account's `LizVault` folder (the manifest's home) and
- * persist its id on the user. Accepts the legacy `LizVault_Data` name so
- * folders created by older builds are reused.
- */
 export async function ensureVaultFolderForUser(user: UserRow): Promise<string | null> {
   if (user.root_folder_id) return user.root_folder_id;
   try {
@@ -191,11 +140,6 @@ export async function ensureVaultFolderForUser(user: UserRow): Promise<string | 
   }
 }
 
-/**
- * Ensure the manifest file exists in the main account's folder and push the
- * latest payload to it. Recovers from a deleted manifest file AND from a
- * deleted parent folder (clears the stale folder id and recreates the folder).
- */
 async function ensureManifestFile(user: UserRow, payload: VaultManifest): Promise<string | null> {
   let rootFolderId = user.root_folder_id ?? (await ensureVaultFolderForUser(user));
   if (!rootFolderId) return null;
@@ -212,7 +156,6 @@ async function ensureManifestFile(user: UserRow, payload: VaultManifest): Promis
         return existing;
       } catch (err: any) {
         if (err.code === 404) {
-          // Manifest file was deleted on Drive — recreate it below.
           manifestFileIds.delete(user.id);
         } else {
           throw err;
@@ -225,8 +168,6 @@ async function ensureManifestFile(user: UserRow, payload: VaultManifest): Promis
       return id;
     } catch (err: any) {
       if (err.code === 404) {
-        // The folder itself is gone (deleted on Drive) — clear the stale id,
-        // recreate the folder, then retry the create once.
         setUserRootFolder(user.id, null);
         rootFolderId = await ensureVaultFolderForUser(user);
         if (!rootFolderId) return null;
@@ -242,16 +183,6 @@ async function ensureManifestFile(user: UserRow, payload: VaultManifest): Promis
   }
 }
 
-/**
- * Ensure the main account's folder contains a manifest.json — creates an
- * empty one when missing (called after login). Never overwrites an existing
- * manifest. Resolves `true` when a fresh manifest was created.
- */
-/**
- * Ensure the main account's folder contains a manifest.json — creates an
- * empty one when missing (called after login). Never overwrites an existing
- * manifest.
- */
 export async function seedManifestForUser(user: UserRow): Promise<boolean> {
   const id = await ensureManifestFile(user, buildManifest());
   return id != null;
@@ -261,7 +192,6 @@ function buildManifest(): VaultManifest {
   return { version: 1, updatedAt: new Date().toISOString(), files, chunks };
 }
 
-/** Debounced save — mutations call this; the flush uploads to every account. */
 export function queueManifestSave(): void {
   dirty = true;
   if (saveTimer) return;
@@ -271,7 +201,6 @@ export function queueManifestSave(): void {
   }, 1200);
 }
 
-/** Cancel a pending debounced save (used when flushing immediately). */
 export function cancelScheduledSave(): void {
   if (saveTimer) {
     clearTimeout(saveTimer);
@@ -279,18 +208,11 @@ export function cancelScheduledSave(): void {
   }
 }
 
-/** Flush immediately, cancelling any pending debounce. */
 export function flushNow(): Promise<void> {
   cancelScheduledSave();
   return flushManifestSave();
 }
 
-/**
- * Upload the current manifest to all connected accounts. Flushes are
- * serialized onto a promise chain, and the loop re-runs while `dirty` is set
- * — so a mutation that lands while an upload is in flight is NEVER dropped
- * (it would have been, had we just returned the in-flight promise).
- */
 export async function flushManifestSave(): Promise<void> {
   const run = async (): Promise<void> => {
     while (dirty) {
@@ -310,7 +232,6 @@ export async function flushManifestSave(): Promise<void> {
   return flushChain;
 }
 
-// -- Files --
 
 export function addFile(file: Omit<FileRow, 'id' | 'created_at' | 'updated_at'> & { created_at?: string, updated_at?: string }): FileRow {
   const now = nowUtc();
@@ -365,7 +286,6 @@ export function getChildIds(userId: number, parentFolderId: number): number[] {
   return files.filter(f => f.user_id === userId && f.parent_folder_id === parentFolderId).map(f => f.id);
 }
 
-/** folder id -> number of direct children (files + subfolders). */
 export function getFolderItemCounts(userId: number, folderIds: number[]): Record<number, number> {
   const counts: Record<number, number> = {};
   for (const fid of folderIds) {
@@ -374,7 +294,6 @@ export function getFolderItemCounts(userId: number, folderIds: number[]): Record
   return counts;
 }
 
-/** Ancestor chain root → leaf (e.g. [A, B, C]). Empty for the root level. */
 export function getFolderPath(userId: number, folderId: number | null): FileRow[] {
   if (folderId === null) return [];
   const path: FileRow[] = [];
@@ -404,7 +323,6 @@ export function getStarredFiles(userId: number): FileRow[] {
     .sort((a, b) => (b.updated_at || b.created_at).localeCompare(a.updated_at || a.created_at));
 }
 
-/** Storage usage bucketed by file-type category. */
 export function getStorageStats(userId: number): StorageCategories {
   const stats: StorageCategories = { photo: 0, video: 0, document: 0, other: 0 };
   for (const f of files) {
@@ -418,13 +336,9 @@ export function getStorageStats(userId: number): StorageCategories {
   return stats;
 }
 
-/**
- * Global search across folders AND files with parent-folder breadcrumbs.
- * Ranked: folders first, then prefix matches, then name (case-insensitive).
- */
 export function searchFilesAndFolders(userId: number, query: string, limit = 25): SearchResultRow[] {
   const q = query.trim().toLowerCase();
-  if (!q) return []; // empty query must never dump the whole vault
+  if (!q) return [];
   const matched = files.filter(f => f.user_id === userId && f.name.toLowerCase().includes(q));
   matched.sort((a, b) => {
     if (a.is_folder !== b.is_folder) return b.is_folder - a.is_folder;
@@ -456,7 +370,6 @@ export function renameFile(id: number, userId: number, newName: string): FileRow
   return file;
 }
 
-/** Same-kind sibling with a case-insensitive name match (folders vs files don't collide). */
 export function findDuplicateName(userId: number, name: string, parentFolderId: number | null, isFolder: boolean, excludeId?: number): FileRow | undefined {
   const lower = name.toLowerCase();
   return files.find(f =>
@@ -468,7 +381,6 @@ export function findDuplicateName(userId: number, name: string, parentFolderId: 
   );
 }
 
-/** `name` → `name (2)`, `name (3)`, … unique among same-kind siblings. Keeps the extension intact. */
 export function getUniqueName(userId: number, name: string, parentFolderId: number | null, isFolder: boolean, excludeId?: number): string {
   if (!findDuplicateName(userId, name, parentFolderId, isFolder, excludeId)) return name;
   const { base, ext } = splitFileName(name);
@@ -488,7 +400,6 @@ export function updateFileStatus(id: number, userId: number, status: FileRow['st
   queueManifestSave();
 }
 
-/** Delete a file/folder + all descendants and their chunk rows (the old FK cascade). */
 export function removeFile(id: number, userId: number): void {
   const doomed = new Set<number>([id]);
   let frontier = [id];
@@ -509,7 +420,6 @@ export function removeFile(id: number, userId: number): void {
   queueManifestSave();
 }
 
-/** Remove all vault rows owned by a user (on logout/user deletion). */
 export function removeFilesForUser(userId: number): void {
   const ids = new Set(files.filter(f => f.user_id === userId).map(f => f.id));
   if (ids.size === 0) return;
@@ -518,7 +428,6 @@ export function removeFilesForUser(userId: number): void {
   queueManifestSave();
 }
 
-// -- Chunks --
 
 export function addChunk(chunk: Omit<ChunkRow, 'id'>): ChunkRow {
   const row: ChunkRow = { id: nextChunkId++, ...chunk };

@@ -17,11 +17,9 @@ const { ipcRenderer, webUtils } = window.require('electron');
 interface FileExplorerProps {
   viewMode: 'list' | 'grid';
   onViewModeChange: (mode: 'list' | 'grid') => void;
-  // Controlled folder navigation (lifted to App so global search can drive it).
   folderId: number | null;
   folderName: string | null;
   onFolderChange: (id: number | null, name: string | null) => void;
-  // External request to highlight a specific file (from global search).
   highlightFileId: number | null;
   onHighlightHandled: () => void;
 }
@@ -31,10 +29,8 @@ type SortOrder = 'asc' | 'desc';
 
 const FOLDER_CARD_COLORS: Array<'orange' | 'green' | 'blue'> = ['orange', 'green', 'blue'];
 
-// Folder grid collapse — cap the cards at 2 rows with a show-more toggle.
 const MAX_FOLDER_ROWS = 2;
 
-// Rough first-paint guess for the main pane (window - 240px sidebar - px-7 padding).
 function estimateFolderColumns(): number {
   if (typeof window === 'undefined') return 3;
   return Math.max(1, Math.floor((window.innerWidth - 296) / 226));
@@ -49,7 +45,6 @@ function formatDate(dateStr: string | null): string {
 
 export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewModeChange, folderId, folderName, onFolderChange, highlightFileId, onHighlightHandled }) => {
   const [items, setItems] = useState<FileRowType[]>([]);
-  // Ancestor chain for the breadcrumb, root → current folder.
   const [folderPath, setFolderPath] = useState<FileRowType[]>([]);
   const [activeTab, setActiveTab] = useState<'recents' | 'starred'>('recents');
   const [sortField, setSortField] = useState<SortField>('created_at');
@@ -74,9 +69,8 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
     loadItems();
   }, [loadItems]);
 
-  // Resolve the full ancestor chain whenever navigation changes.
   useEffect(() => {
-    setFolderPath([]); // drop the stale chain immediately
+    setFolderPath([]);
     if (folderId == null) return;
     let cancelled = false;
     ipcRenderer.invoke('folders:path', { folderId }).then((res: { path: FileRowType[] }) => {
@@ -84,21 +78,17 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
       if (res.path && res.path.length > 0) {
         setFolderPath(res.path);
       } else {
-        // Folder was deleted while we were inside it — bail to the root.
         onFolderChange(null, null);
       }
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [folderId, onFolderChange]);
 
-  // Collapse the folder grid + drop any selection whenever the user navigates
-  // (selections must not leak across folders).
   useEffect(() => {
     setFoldersExpanded(false);
     setSelectedFiles(new Set());
   }, [folderId]);
 
-  // Fetch per-folder child counts (files + subfolders) for the folder cards.
   useEffect(() => {
     const folderIds = items.filter(f => f.is_folder === 1).map(f => f.id);
     if (folderIds.length === 0) {
@@ -139,17 +129,12 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
 
   const folders = items.filter(f => f.is_folder === 1);
   const files = items.filter(f => f.is_folder === 0);
-  // The Starred tab shows starred folders AND files.
   const tabFolders = activeTab === 'starred' ? folders.filter(f => f.is_starred === 1) : folders;
 
-  // Measure how many folder cards fit per row so the grid can be capped at
-  // MAX_FOLDER_ROWS. Re-attach whenever the grid mounts (folders appear, or
-  // the user switches back to grid view from list view).
   useEffect(() => {
     if (tabFolders.length === 0) return;
     const el = folderGridRef.current;
     if (!el) return;
-    // Read the real resolved track count straight from CSS — no duplicated constants.
     const measure = () => {
       const columns = getComputedStyle(el).gridTemplateColumns.split(' ').length;
       setGridColumns(Math.max(1, columns));
@@ -182,7 +167,6 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
 
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, file: FileRowType } | null>(null);
 
-  // Temporary flash highlight for a file arrived at via global search.
   const [flashId, setFlashId] = useState<number | null>(null);
 
   useEffect(() => {
@@ -191,11 +175,9 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
     return () => clearTimeout(t);
   }, [flashId]);
 
-  // Global search “navigate & highlight”: wait until the target folder's items
-  // have loaded, then select + scroll to + flash the file row/card.
   useEffect(() => {
     if (highlightFileId == null) return;
-    if (!items.some(f => f.id === highlightFileId)) return; // items not loaded yet
+    if (!items.some(f => f.id === highlightFileId)) return;
     setSelectedFiles(new Set([highlightFileId]));
     setFlashId(highlightFileId);
     setActiveTab('recents');
@@ -208,8 +190,6 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
     onHighlightHandled();
   }, [items, highlightFileId, onHighlightHandled]);
 
-  // Fallback: if the target never appears (deleted/moved, or the folder load
-  // failed), clear the pending highlight so it can't fire later by accident.
   useEffect(() => {
     if (highlightFileId == null) return;
     const t = setTimeout(onHighlightHandled, 3000);
@@ -221,7 +201,6 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
     setContextMenu({ x: e.clientX, y: e.clientY, file });
   };
 
-  // Toggle a folder in/out of the multi-selection set.
   const toggleFolderSelect = (folder: FileRowType, e?: React.MouseEvent) => {
     e?.stopPropagation();
     const newSet = new Set(selectedFiles);
@@ -230,7 +209,6 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
     setSelectedFiles(newSet);
   };
 
-  // Plain click navigates into the folder; Ctrl/Cmd+click selects it instead.
   const handleFolderClick = (folder: FileRowType, e: React.MouseEvent) => {
     if (e.metaKey || e.ctrlKey) toggleFolderSelect(folder);
     else onFolderChange(folder.id, folder.name);
@@ -245,8 +223,6 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
     e.preventDefault();
     e.stopPropagation();
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      // `File.path` was removed in Electron 32 — the only supported way to
-      // get the dropped file's disk path is webUtils.getPathForFile().
       for (const file of Array.from(e.dataTransfer.files)) {
         const filePath = webUtils.getPathForFile(file);
         if (filePath) startUpload(filePath, file.name);
@@ -332,8 +308,6 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
     });
   }, [files, activeTab, sortField, sortOrder]);
 
-  // Everything visible in the current view (folders + files) — used for
-  // select-all and for passing multi-selection targets to the context menu.
   const visibleItems = useMemo(
     () => [...tabFolders, ...filteredAndSortedFiles],
     [tabFolders, filteredAndSortedFiles]
@@ -342,10 +316,8 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
   return (
     <div onDragOver={handleDragOver} onDrop={handleDrop} className="flex h-full flex-col">
 
-      {/* Page header — wraps when the window is narrow */}
       <div className="mb-6 flex min-h-[36px] flex-wrap items-center justify-between gap-2">
         <h1 className="min-w-0 text-[20px] font-bold tracking-tight text-ink">
-          {/* Breadcrumb — full folder path with clickable segments */}
           <span className="inline-flex max-w-full items-center gap-1.5">
             <span
               className="inline-flex cursor-pointer items-center gap-1 rounded text-muted transition-colors duration-100 hover:text-accent"
@@ -354,7 +326,6 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
               All Files
             </span>
-            {/* While the full chain loads, show the current folder from folderName */}
             {folderPath.length === 0 && folderName && (
               <span className="flex min-w-0 items-center gap-1.5">
                 <span className="text-muted">/</span>
@@ -392,7 +363,6 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
         </div>
       </div>
 
-      {/* Tab bar — sits above folders AND files so both are filtered */}
       <div className="mb-4 flex min-h-[44px] items-center gap-2">
         <button
           className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-3.5 py-1.5 text-[13px] font-medium transition-all duration-150 ${
@@ -416,7 +386,6 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
         </button>
       </div>
 
-      {/* Folder cards (grid view only) — filtered by the active tab, capped at MAX_FOLDER_ROWS rows with a show-more toggle */}
       {viewMode === 'grid' && tabFolders.length > 0 && (
         <>
           <div
@@ -467,9 +436,8 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
         </>
       )}
 
-      {/* File list */}
+      {}
       <div className="mt-2 flex-1">
-        {/* Section divider between folders and files (only when both sections have content) */}
         {viewMode === 'grid' && tabFolders.length > 0 && filteredAndSortedFiles.length > 0 && (
           <div className="-mt-2 mb-5 border-t border-line" />
         )}
@@ -501,7 +469,6 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
               </tr>
             </thead>
             <tbody>
-              {/* Folders first as rows when in list view */}
               {tabFolders.map(folder => (
                 <FolderRow
                   key={folder.id}
@@ -574,12 +541,10 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
                 }}
                 onContextMenu={(e) => handleContextMenu(e, file)}
               >
-                {/* Preview Area */}
                 <div className={`flex h-[130px] w-full items-center justify-center overflow-hidden rounded-t-[11px] transition-colors duration-200 ${selectedFiles.has(file.id) ? 'bg-transparent' : 'bg-panel'}`}>
                   <ThumbnailImage file={file} iconSize={48} />
                 </div>
                 
-                {/* Info Area */}
                 <div className={`flex items-center justify-between rounded-b-[11px] border-t p-3 ${selectedFiles.has(file.id) ? 'border-accent/20' : 'border-line'}`}>
                   <div className="flex min-w-0 items-center gap-2">
                     <FileTypeIcon name={file.name} size={16} />
@@ -608,7 +573,6 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
         )}
       </div>
 
-      {/* Create Folder Modal */}
       {isCreateFolderOpen && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 backdrop-blur-[2px]">
           <div className="w-[400px] max-w-[90vw] rounded-xl border border-line bg-panel p-6 shadow-[0_10px_30px_rgba(0,0,0,0.1)]">
@@ -641,12 +605,10 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
         />
       )}
 
-      {/* Rename modal */}
+      {}
       {renameTarget && (
         <RenameModal
           title={renameTarget.is_folder === 1 ? 'Rename Folder' : 'Rename File'}
-          // Files: base name editable, extension preserved as a muted suffix.
-          // Folders: the whole name is the base ("my.folder" stays intact).
           initialName={renameTarget.is_folder === 1 ? renameTarget.name : splitFileName(renameTarget.name).base}
           suffix={renameTarget.is_folder === 1 ? '' : splitFileName(renameTarget.name).ext}
           error={renameError}

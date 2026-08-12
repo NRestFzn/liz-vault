@@ -1,10 +1,5 @@
-// Single source of truth for file-type categorization, shared by the renderer
-// (file icons, thumbnails) and the main process (storage stats). Keeps the two in sync.
-
-/** Broad buckets used by the sidebar storage legend + storage stats. */
 export type FileCategory = 'image' | 'video' | 'audio' | 'document' | 'other';
 
-/** Fine-grained buckets used for per-extension file icons. */
 export type ExtendedCategory =
   | 'image'
   | 'video'
@@ -21,16 +16,11 @@ export type ExtendedCategory =
 
 export interface FileTypeInfo {
   category: ExtendedCategory;
-  /** Human label, e.g. "ZIP Archive" */
   label: string;
-  /** Icon color (hex) — keep consistent with the sidebar storage legend colors. */
   color: string;
-  /** Lowercase extensions (no leading dot). First match wins. */
   extensions: string[];
 }
 
-// Ordered — the first entry whose extension list matches wins, so keep the
-// extension sets disjoint.
 const FILE_TYPES: FileTypeInfo[] = [
   {
     category: 'image',
@@ -119,21 +109,12 @@ function getExtension(name: string): string {
   return name.split('.').pop()?.toLowerCase() || '';
 }
 
-/**
- * Split a filename into its base and its LAST extension (e.g. photo.png →
- * { base: 'photo', ext: '.png' }; archive.tar.gz → { base: 'archive.tar', ext: '.gz' }).
- * Files with no extension return ext: ''. Used by the rename modal so the
- * extension is preserved while the user edits only the base name.
- */
 export function splitFileName(name: string): { base: string; ext: string } {
   const m = name.match(/^(.*)(\.[^.\\/]*)$/);
-  // No extension, or a hidden file like ".gitignore" (empty base) — keep the
-  // whole name as the editable base so the rename modal never opens empty.
   if (!m || !m[1]) return { base: name, ext: '' };
   return { base: m[1], ext: m[2] };
 }
 
-/** Broad category — used by the sidebar legend and storage stats. */
 export function getFileCategory(name: string): FileCategory {
   switch (getFileTypeInfo(name).category) {
     case 'image': return 'image';
@@ -142,7 +123,7 @@ export function getFileCategory(name: string): FileCategory {
     case 'document':
     case 'spreadsheet':
     case 'presentation': return 'document';
-    default: return 'other'; // archive, code, executable, database, font, other
+    default: return 'other';
   }
 }
 
@@ -150,7 +131,6 @@ export function isImageFile(name: string): boolean {
   return getFileTypeInfo(name).category === 'image';
 }
 
-/** Extensions the browser <img> tag can actually decode (heic/raw/tiff can't). */
 const BROWSER_DECODABLE_IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'];
 
 export function isBrowserDecodableImage(name: string): boolean {
@@ -169,7 +149,6 @@ const IMAGE_MIME_MAP: Record<string, string> = {
   avif: 'image/avif',
 };
 
-/** MIME type for a browser-decodable image, or null. */
 export function getImageMime(name: string): string | null {
   return IMAGE_MIME_MAP[getExtension(name)] ?? null;
 }

@@ -8,11 +8,6 @@ interface BatchDeleteModalProps {
   onCancel: () => void;
 }
 
-/**
- * Multi-delete confirmation modal. Unlike the single-item ConfirmDialog, this
- * one ALWAYS appears for batch deletes so the user can re-check exactly what
- * is being removed (names listed with type icons). Folders and files mix.
- */
 export const BatchDeleteModal: React.FC<BatchDeleteModalProps> = ({ items, onConfirm, onCancel }) => {
   const confirmRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -57,7 +52,6 @@ export const BatchDeleteModal: React.FC<BatchDeleteModalProps> = ({ items, onCon
           {summary} will be permanently removed from all connected drives. Folders are deleted along with everything inside them. This cannot be undone.
         </div>
 
-        {/* Scrollable list of everything being deleted */}
         <div className="max-h-[220px] overflow-y-auto rounded-lg border border-line bg-surface/60 p-1.5">
           {items.map(item => (
             <div key={item.id} className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent/[0.05]">

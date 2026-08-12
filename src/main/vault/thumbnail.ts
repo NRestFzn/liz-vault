@@ -2,17 +2,11 @@ import { getFile, getChunksForFile, getAccountByEmail } from '../db/queries';
 import { getDriveClient } from '../google/auth';
 import { isBrowserDecodableImage, getImageMime } from '../../shared/fileCategory';
 
-/**
- * Grid-view image previews. Images are < 1GB in practice, so the whole image
- * lives in chunk 0 — we download that single chunk and hand the renderer a
- * data URL. Results are cached in memory so re-visits don't re-download.
- */
 
-const MAX_THUMBNAIL_BYTES = 20 * 1024 * 1024; // skip huge "images" (e.g. raw video thumbs)
+const MAX_THUMBNAIL_BYTES = 20 * 1024 * 1024;
 const MAX_CACHE_ENTRIES = 200;
 
 const cache = new Map<number, string>();
-// Deduplicate concurrent requests for the same file.
 const inFlight = new Map<number, Promise<string | null>>();
 
 export function invalidateThumbnail(fileId: number): void {

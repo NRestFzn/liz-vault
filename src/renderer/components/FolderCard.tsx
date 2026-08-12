@@ -6,9 +6,7 @@ interface FolderCardProps {
   color: 'orange' | 'green' | 'blue';
   itemCount?: number;
   isStarred?: boolean;
-  /** Multi-select mode — card renders a check badge and selection highlight. */
   isSelected?: boolean;
-  /** Fired when the corner check badge is clicked (card already stops propagation). */
   onSelect?: (e: React.MouseEvent) => void;
   onClick?: (e: React.MouseEvent) => void;
   onContextMenu?: (e: React.MouseEvent) => void;
@@ -21,9 +19,6 @@ const FOLDER_COLORS = {
 };
 
 const FolderSVG: React.FC<{ color: string }> = ({ color }) => (
-  // shrink-0 + explicit width/height: the icon must never be compressed by
-  // flexbox when the card content is tight (tall mono line-heights, wrapped
-  // meta lines) — its size is now independent of grid width / state.
   <svg
     className="mb-3 h-10 w-12 shrink-0"
     width="48"
@@ -37,17 +32,12 @@ const FolderSVG: React.FC<{ color: string }> = ({ color }) => (
   </svg>
 );
 
-/**
- * Folder card for the auto-fill grid. Uniform fixed height so rows stay even
- * no matter how many folders exist; long names truncate with a tooltip.
- */
 export const FolderCard: React.FC<FolderCardProps> = ({ name, updated, color, itemCount, isStarred, isSelected, onSelect, onClick, onContextMenu }) => (
   <div
     onClick={onClick}
     onContextMenu={onContextMenu}
     className={`group/folder relative flex h-[128px] flex-col justify-between rounded-xl border bg-panel p-4 transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:z-10 hover:border-[#c9d2e0] hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] ${onClick ? 'cursor-pointer' : ''} ${isSelected ? 'border-accent bg-accent-soft' : 'border-line'}`}
   >
-    {/* Selection badge — appears on hover, stays visible once selected */}
     {onSelect && (
       <button
         className={`absolute left-3 top-3 z-20 flex h-[18px] w-[18px] cursor-pointer items-center justify-center rounded-[5px] border transition-all duration-150 ${
@@ -82,7 +72,6 @@ export const FolderCard: React.FC<FolderCardProps> = ({ name, updated, color, it
 
     <div className="min-w-0">
       <div className="truncate text-[13px] font-semibold text-ink">{name}</div>
-      {/* Custom tooltip for truncated names (CSS title attr is banned) */}
       <div className="pointer-events-none absolute left-4 top-full z-[100] mt-1.5 invisible w-max max-w-[200px] -translate-y-1 break-words rounded bg-[#333] px-2.5 py-1.5 text-[12px] font-medium leading-relaxed text-white opacity-0 shadow-lg transition-all delay-300 group-hover/folder:visible group-hover/folder:translate-y-0 group-hover/folder:opacity-100">
         {name}
       </div>

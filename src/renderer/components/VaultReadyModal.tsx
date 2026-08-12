@@ -1,17 +1,10 @@
 import React, {useEffect, useRef} from 'react';
 
 interface VaultReadyModalProps {
-  /** Email of the main account the vault was created on. */
   email: string | null;
   onClose: () => void;
 }
 
-/**
- * Shown once after the first login on a Google account: tells the user that
- * LizVault created its `LizVault` folder + `manifest.json` on the MAIN
- * account's Drive, and why the manifest matters. Informational only — the
- * user reads it, checks Drive if they want, then closes it.
- */
 export const VaultReadyModal: React.FC<VaultReadyModalProps> = ({
   email,
   onClose,
@@ -28,7 +21,6 @@ export const VaultReadyModal: React.FC<VaultReadyModalProps> = ({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
 
-  // Backdrop click closes (purely informational — nothing destructive).
   const handleBackdropClick = (e: React.MouseEvent) => {
     if (dialogRef.current && !dialogRef.current.contains(e.target as Node)) {
       onClose();
@@ -151,7 +143,6 @@ export const VaultReadyModal: React.FC<VaultReadyModalProps> = ({
         aria-label="Vault created"
         className="w-[460px] max-w-[92vw] rounded-xl border border-line bg-panel p-6 shadow-[0_10px_30px_rgba(0,0,0,0.12)]"
       >
-        {/* Header */}
         <div className="mb-4 flex items-center gap-3">
           <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600">
             <svg
@@ -173,7 +164,6 @@ export const VaultReadyModal: React.FC<VaultReadyModalProps> = ({
           </h3>
         </div>
 
-        {/* Body */}
         <div className="mb-6 flex flex-col gap-3.5">
           {rows.map((row, i) => (
             <div key={i} className="flex items-start gap-3">
@@ -187,7 +177,6 @@ export const VaultReadyModal: React.FC<VaultReadyModalProps> = ({
           ))}
         </div>
 
-        {/* Footer */}
         <div className="flex justify-end">
           <button ref={okRef} className="btn-primary" onClick={onClose}>
             Got it

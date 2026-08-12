@@ -9,8 +9,6 @@ const { ipcRenderer } = window.require('electron');
 export const QuotaTracker: React.FC = () => {
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
   const { toastError, toastInfo } = useToast();
-  // Auto-refresh preference now lives in Settings (app_state). Loaded on mount
-  // so the 30s poll and the on-load token checks respect the saved value.
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -19,7 +17,6 @@ export const QuotaTracker: React.FC = () => {
   const [okFlash, setOkFlash] = useState<Record<number, number>>({});
   const flashTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
 
-  // Clean up any pending "Token OK" flash timers on unmount.
   useEffect(() => {
     return () => {
       Object.values(flashTimers.current).forEach(t => clearTimeout(t));
@@ -31,10 +28,6 @@ export const QuotaTracker: React.FC = () => {
     if (res.accounts) setAccounts(res.accounts);
   }, []);
 
-  // Test one account's refresh token via IPC. Definitive auth failures flip
-  // the card to expired (persisted); healthy tokens show a brief "✓ OK" flash;
-  // transient errors (network, missing credentials) show a short error note
-  // WITHOUT touching the account's health.
   const testAccount = useCallback(async (id: number) => {
     setTestingIds(prev => (prev.includes(id) ? prev : [...prev, id]));
     try {
@@ -54,17 +47,14 @@ export const QuotaTracker: React.FC = () => {
       } else if (res.expired) {
         setAccounts(prev => prev.map(a => (a.id === id ? { ...a, token_ok: 0 } : a)));
       } else {
-        // Transient — surface the real reason as a toast, keep current health.
         toastError(res.error || 'Token check failed.');
       }
     } catch {
-      // IPC failure — nothing to show; the finally below resets the spinner.
     } finally {
       setTestingIds(prev => prev.filter(x => x !== id));
     }
   }, []);
 
-  // Load account list, then re-check every account's token health.
   const loadAndTest = useCallback(async () => {
     const res = await ipcRenderer.invoke('accounts:list');
     if (res.accounts) {
@@ -73,13 +63,8 @@ export const QuotaTracker: React.FC = () => {
     }
   }, [testAccount]);
 
-  // Read the auto-refresh preference from Settings. One-time migration from
-  // the old localStorage key (set before this option moved into Settings) so
-  // the user's existing choice survives the move.
   useEffect(() => {
     (async () => {
-      // Resolve the preference without ever clobbering a saved choice: even if
-      // a persist/migration write fails, the user's value still applies.
       let pref: boolean;
       try {
         const res = await ipcRenderer.invoke('settings:get');
@@ -88,8 +73,6 @@ export const QuotaTracker: React.FC = () => {
         pref = true;
       }
 
-      // One-time migration from the old localStorage key (set before this
-      // option moved into Settings) so the user's existing choice survives.
       const saved = localStorage.getItem('lizvault_quotaAutoRefresh');
       if (saved !== null && !localStorage.getItem('lizvault_quotaAutoRefreshMigrated')) {
         pref = saved !== '0';
@@ -98,8 +81,6 @@ export const QuotaTracker: React.FC = () => {
           localStorage.removeItem('lizvault_quotaAutoRefresh');
           localStorage.setItem('lizvault_quotaAutoRefreshMigrated', '1');
         } catch {
-          // Persist failed — keep the migrated value for this visit; the old
-          // key stays so the migration retries next launch.
         }
       }
 
@@ -111,14 +92,9 @@ export const QuotaTracker: React.FC = () => {
   useEffect(() => {
     if (!settingsLoaded) return;
 
-    // Respect the preference: when auto-refresh is OFF, just show the stored
-    // DB data with NO automatic token checks or reloads. Turning it ON (or the
-    // manual Refresh button) does the full re-test.
     if (autoRefresh) loadAndTest();
     else loadAccounts();
 
-    // Re-login upserts by email, so a repaired account REPLACES its card
-    // instead of being appended as a duplicate.
     const onAccountAdded = (_: any, data: { account: AccountRow }) => {
       setAccounts(prev => {
         const idx = prev.findIndex(a => a.email === data.account.email);
@@ -141,8 +117,6 @@ export const QuotaTracker: React.FC = () => {
     };
   }, [loadAndTest, autoRefresh, loadAccounts, settingsLoaded]);
 
-  // Auto-refresh: poll quota while enabled (token health is re-checked on page
-  // load and via the Refresh / per-card buttons).
   useEffect(() => {
     if (!settingsLoaded || !autoRefresh) return;
     const interval = setInterval(() => { loadAccounts().catch(() => {}); }, 30000);
@@ -153,15 +127,10 @@ export const QuotaTracker: React.FC = () => {
     setConnecting(true);
     try {
       const res = await ipcRenderer.invoke('account:add');
-      // A retry aborts the previous attempt — its response is `cancelled`,
-      // which should never surface as an error (and must not linger after a
-      // successful login either).
       if (res.cancelled) return;
       if (res.error) {
         toastError(res.error);
       } else if (res.folderCreated) {
-        // A new storage folder was created on the connected account's Drive
-        // (chunks live there — the manifest stays on the main login account).
         toastInfo(
           res.account
             ? `LizVault created a “LizVault_Data” storage folder in ${res.account.email}'s Drive for your files.`
@@ -173,10 +142,6 @@ export const QuotaTracker: React.FC = () => {
     }
   };
 
-  // User pressed Cancel on the waiting modal — abort the pending flow via
-  // IPC; the pending `account:add` invoke settles with `cancelled` and hides.
-  // The state reset runs even if the IPC itself fails, so the modal can never
-  // get stuck open.
   const handleCancelConnect = async () => {
     try {
       await ipcRenderer.invoke('oauth:cancel');
@@ -209,7 +174,6 @@ export const QuotaTracker: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-7">
-      {/* Header — wraps when the window is narrow (minimized/small) */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-[20px] font-bold">Quota Tracker</h2>
@@ -228,7 +192,6 @@ export const QuotaTracker: React.FC = () => {
         </div>
       </div>
 
-      {/* Stat cards */}
       <div className="grid grid-cols-4 gap-3.5">
         <StatCard title="Total Storage" value={formatGB(totalStorage)} />
         <StatCard title="Used Storage" value={formatGB(usedStorage)} />
@@ -236,7 +199,6 @@ export const QuotaTracker: React.FC = () => {
         <StatCard title="Accounts" value={String(accounts.length)} />
       </div>
 
-      {/* Account cards */}
       <div className="grid grid-cols-2 gap-3.5">
         {accounts.map(acc => {
           const t = acc.total_bytes || 1;
@@ -268,7 +230,6 @@ export const QuotaTracker: React.FC = () => {
         )}
       </div>
 
-      {/* Desktop-style OAuth waiting modal while the browser is open */}
       {connecting && (
         <OAuthWaitingModal
           title="Connect Google Drive"
@@ -276,7 +237,7 @@ export const QuotaTracker: React.FC = () => {
         />
       )}
 
-      {/* Custom in-app confirmation for removing an account (no native dialog) */}
+      {}
       {removeTarget !== null && (
         <ConfirmDialog
           title="Remove Account"

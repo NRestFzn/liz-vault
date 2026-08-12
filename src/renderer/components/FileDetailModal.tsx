@@ -38,32 +38,22 @@ const STAR_ICON = (
   </svg>
 );
 
-/**
- * File detail modal — shown when a file result is clicked in global search.
- * Shows the preview, metadata (location, type, size, dates) and actions
- * (Download, Open Location, Star, Delete) — Google Drive style.
- */
 export const FileDetailModal: React.FC<FileDetailModalProps> = ({ file, onClose, onOpenLocation }) => {
   const [starred, setStarred] = useState(file.is_starred === 1);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
-  // Track the live name so a rename updates the header/preview without reopening.
   const [displayName, setDisplayName] = useState(file.name);
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
 
   const { toastError } = useToast();
   const typeInfo = getFileTypeInfo(displayName);
-  // Full breadcrumb path, Google Drive style: "All Files / Random / Apalah".
   const location =
     file.parent_path && file.parent_path.length > 0
       ? `All Files / ${file.parent_path.join(' / ')}`
       : 'All Files';
 
-  // Esc to close, autofocus the close button. While a nested dialog
-  // (ConfirmDialog / RenameModal) is open, Esc must only dismiss that dialog
-  // (it owns its own handler) — so skip our own handler in those states.
   useEffect(() => {
     closeRef.current?.focus();
     const onKeyDown = (e: KeyboardEvent) => {
@@ -73,8 +63,6 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({ file, onClose,
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onClose, confirmOpen, renameOpen]);
 
-  // Clicking the dimmed backdrop closes — but ignore clicks that land on the
-  // nested ConfirmDialog (it has its own dismissal).
   const handleBackdropClick = (e: React.MouseEvent) => {
     if ((e.target as Element).closest('[role="alertdialog"]')) return;
     if (dialogRef.current && !dialogRef.current.contains(e.target as Node)) {
@@ -122,8 +110,6 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({ file, onClose,
     }
   };
 
-  // Delete flow mirrors ContextMenu: read the confirm setting, then either
-  // delete directly or show the custom ConfirmDialog.
   const handleDeleteClick = async () => {
     try {
       const res = await ipcRenderer.invoke('settings:get');
@@ -185,7 +171,6 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({ file, onClose,
         aria-modal="true"
         className="flex max-h-[calc(100vh-48px)] w-[520px] max-w-[92vw] flex-col overflow-hidden rounded-xl border border-line bg-panel shadow-[0_16px_48px_rgba(0,0,0,0.18)]"
       >
-        {/* Header */}
         <div className="flex flex-shrink-0 items-center justify-between border-b border-line px-6 py-4">
           <div className="flex min-w-0 items-center gap-2.5">
             <div
@@ -206,12 +191,10 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({ file, onClose,
           </button>
         </div>
 
-        {/* Preview — the only flexible element, so the modal fits the window without scrolling */}
         <div className="flex h-[220px] min-h-0 items-center justify-center overflow-hidden border-b border-line bg-surface">
           <ThumbnailImage file={{ ...file, name: displayName }} iconSize={72} />
         </div>
 
-        {/* Body — compact, never scrolls (content is short and the preview absorbs the shrink) */}
         <div className="flex-shrink-0 px-6 py-5">
           <div className="mb-5 flex items-center gap-2.5">
             <span
@@ -235,7 +218,6 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({ file, onClose,
           </div>
         </div>
 
-        {/* Footer actions */}
         <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line px-6 py-4">
           <button className="btn-outline px-3.5 py-1.5 text-[12px]" onClick={toggleStar}>
             <span className={starred ? 'text-amber-400' : 'text-muted'}>{STAR_ICON}</span>
@@ -277,8 +259,6 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({ file, onClose,
       {renameOpen && (
         <RenameModal
           title={file.is_folder === 1 ? 'Rename Folder' : 'Rename File'}
-          // Files: base name editable, extension preserved as a muted suffix.
-          // Folders: the whole name is the base ("my.folder" stays intact).
           initialName={file.is_folder === 1 ? displayName : splitFileName(displayName).base}
           suffix={file.is_folder === 1 ? '' : splitFileName(displayName).ext}
           error={renameError}

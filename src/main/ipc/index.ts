@@ -35,10 +35,7 @@ function requireUserId(): number {
 }
 
 export function registerIpcHandlers(mainWindow: BrowserWindow) {
-  
-  // -- Accounts --
-  
-  // Aborts a pending login/connect flow (the user cancelled from the waiting modal).
+
   ipcMain.handle('oauth:cancel', async () => {
     abortActiveOAuthFlow();
     return { success: true };
@@ -48,24 +45,16 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
     try {
       const userId = requireUserId();
       const { account, folderCreated } = await initiateOAuthFlow(userId);
-      // A fresh login may have loaded the vault from the main account; make
-      // sure the in-memory store reflects Drive before any UI reads it.
       invalidateManifestLoaded();
       await ensureManifestLoaded();
       mainWindow.webContents.send('account:added', { account });
       return { account, folderCreated };
     } catch (e: any) {
-      // A newer attempt cancelled this one — not an error, just signal it so
-      // the renderer doesn't show a stale "cancelled" message.
       if (e instanceof OAuthCancelledError) return { cancelled: true };
       return { error: e.message };
     }
   });
 
-  // Tests an account's refresh token (expired/revoked detection). The result
-  // is persisted so the expired state survives restarts — but ONLY definitive
-  // auth failures flip the persisted state; transient errors (network, missing
-  // credentials) keep the previous health and just surface the error.
   ipcMain.handle('account:test', async (_: any, payload: { accountId: number }): Promise<IpcAccountTestResponse> => {
     try {
       const userId = requireUserId();
@@ -98,15 +87,11 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
     }
   });
 
-  // -- User (login identity, separate from drive accounts) --
 
   ipcMain.handle('user:login', async () => {
     try {
       const { user, folderCreated } = await initiateLoginFlow();
       setActiveUserId(user.id);
-      // Drop any previous user's in-memory vault, then load this user's
-      // manifest from the main account's Drive (may already exist from
-      // another device).
       resetVaultStore();
       await ensureManifestLoaded();
       mainWindow.webContents.send('user:changed', { user });
@@ -120,7 +105,6 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
   ipcMain.handle('user:logout', async () => {
     try {
       setActiveUserId(null);
-      // Clear the in-memory vault so the next login starts clean.
       resetVaultStore();
       mainWindow.webContents.send('user:changed', { user: null });
       return { success: true };
@@ -150,7 +134,6 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
     }
   });
 
-  // -- Files --
   
   ipcMain.handle('files:list', async () => {
     try {
@@ -162,7 +145,6 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
     }
   });
 
-  // Global search — folders + files with parent-folder names for breadcrumbs.
   ipcMain.handle('files:search-all', async (_: any, payload: IpcFilesSearchAllRequest): Promise<IpcFilesSearchAllResponse> => {
     try {
       await ensureManifestLoaded();
@@ -216,7 +198,6 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
     }
   });
 
-  // Ancestor chain for the breadcrumb (root → current folder).
   ipcMain.handle('folders:path', async (_: any, payload: IpcFolderPathRequest): Promise<IpcFolderPathResponse> => {
     try {
       await ensureManifestLoaded();
@@ -250,8 +231,6 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
     }
   });
 
-  // NOTE: delete confirmation is handled in the renderer (custom in-app
-  // ConfirmDialog). These handlers execute the deletion directly.
 
   ipcMain.handle('file:delete', async (_: any, payload: IpcFileDeleteRequest): Promise<IpcFileDeleteResponse> => {
     try {
@@ -269,7 +248,6 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
     }
   });
 
-  // Batch delete — same as single delete, one IPC call for a multi-selection.
   ipcMain.handle('file:delete-many', async (_: any, payload: IpcFilesDeleteManyRequest): Promise<IpcFilesDeleteManyResponse> => {
     try {
       await ensureManifestLoaded();
@@ -288,7 +266,6 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
     }
   });
 
-  // -- Rename --
 
   ipcMain.handle('file:rename', async (_: any, payload: IpcFileRenameRequest): Promise<IpcFileRenameResponse> => {
     try {
@@ -299,12 +276,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
 
       const current = getFile(payload.fileId, userId);
       if (!current) return { error: 'File not found' };
-      if (newName === current.name) return { file: current }; // no-op
+      if (newName === current.name) return { file: current };
 
-      // Same duplicate policy as upload/folder-create: if a same-kind sibling
-      // already has this name, either auto-rename to "name (2)" or flag
-      // duplicate so the renderer can show a modal. Files and folders with the
-      // same name coexist — only same-type collisions count.
       const autoRename = getAppState('autoRenameDuplicates') !== '0';
       const isFolder = current.is_folder === 1;
       let finalName = newName;
@@ -318,8 +291,6 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
       const file = renameFile(payload.fileId, userId, finalName);
       if (!file) return { error: 'File not found' };
 
-      // The extension may have changed (photo.jpg → photo.txt) — the cached
-      // thumbnail for this id would be stale.
       invalidateThumbnail(payload.fileId);
       mainWindow.webContents.send('file:renamed', { file });
       return { file };
@@ -328,7 +299,6 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
     }
   });
 
-  // -- Settings --
 
   ipcMain.handle('settings:get', async (): Promise<IpcSettingsGetResponse> => {
     try {
@@ -359,7 +329,6 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
     }
   });
 
-  // -- Google API credentials (configured in Settings, stored in app_state) --
 
   ipcMain.handle('credentials:get', async (): Promise<IpcCredentialsGetResponse> => {
     return getGoogleCredentials();
@@ -367,7 +336,6 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
 
   ipcMain.handle('credentials:set', async (_: any, payload: IpcCredentialsSetRequest): Promise<IpcCredentialsSetResponse> => {
     try {
-      // Storing empty values clears the saved credentials (removes them).
       const clientId = (payload.clientId || '').trim();
       const clientSecret = (payload.clientSecret || '').trim();
       setGoogleCredentials(clientId, clientSecret);
@@ -394,9 +362,6 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
       const userId = requireUserId();
       const parentId = payload.parentFolderId ?? null;
 
-      // Duplicate-name policy: auto-rename to "name (2)" by default, or reject
-      // with duplicate:true so the renderer can show a modal instead. Only
-      // same-kind siblings (files vs folders) collide.
       const autoRename = getAppState('autoRenameDuplicates') !== '0';
       let fileName = payload.fileName;
       if (findDuplicateName(userId, fileName, parentId, false)) {
@@ -496,7 +461,6 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
         click: async () => {
           try {
             const userId = requireUserId();
-            // Confirmation is handled by the renderer's custom dialog.
             await deleteFileChunks(userId, fileId);
             invalidateThumbnail(fileId);
             mainWindow.webContents.send('file:deleted', { fileId });

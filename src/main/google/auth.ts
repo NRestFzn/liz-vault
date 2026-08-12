@@ -4,13 +4,10 @@ import http from 'http';
 import { addAccount, addUser, getAccount, getGoogleCredentials, seedManifestForUser } from '../db/queries';
 import { AccountRow, UserRow } from '../../shared/types';
 
-// MAIN account folder — hosts the vault manifest.json (created at login).
 const VAULT_FOLDER_NAME = 'LizVault';
-// STORAGE account folder — holds the raw chunk files (created on Connect Drive).
 const STORAGE_FOLDER_NAME = 'LizVault_Data';
-// Each lookup accepts the other name so folders from older builds are reused.
-const LEGACY_FOLDER_NAME = STORAGE_FOLDER_NAME; // old main-account name
-const LEGACY_STORAGE_NAME = VAULT_FOLDER_NAME; // old storage-account name
+const LEGACY_FOLDER_NAME = STORAGE_FOLDER_NAME;
+const LEGACY_STORAGE_NAME = VAULT_FOLDER_NAME;
 
 const SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
@@ -18,9 +15,6 @@ const SCOPES = [
   'https://www.googleapis.com/auth/userinfo.email',
 ];
 
-// Google API credentials are configured in the Settings page and stored in
-// the local config.json — NOT in .env. Read them live on every OAuth client
-// creation so a settings change applies without a restart.
 function getOAuthCredentials(): { clientId: string; clientSecret: string } {
   return getGoogleCredentials();
 }
@@ -32,35 +26,14 @@ function assertCredentialsConfigured(): void {
   }
 }
 
-// Google no longer accepts custom URI schemes (e.g. lizvault://oauth/callback)
-// as OAuth redirect URIs. Native/desktop apps must use the loopback redirect
-// flow (RFC 8252): a temporary one-shot HTTP listener on 127.0.0.1 catches the
-// callback.
-//
-// For a "Desktop app" OAuth client (the recommended type), Google accepts ANY
-// loopback port dynamically — nothing needs to be registered in the console.
-// So we bind port 0 (ephemeral): the OS picks a free port, and the redirect
-// URI is built from whatever port was actually assigned. No .env, no fixed
-// port, no registration — works identically on every device.
 const LOOPBACK_HOST = '127.0.0.1';
 
-// The currently-pending OAuth/login flow. Tracked so a NEW flow can abort a
-// stale one (e.g. the user cancelled the previous attempt — the browser never
-// called back, so the old listener would otherwise linger until its timeout
-// and hold the port). The fail function is stored too, so aborting settles the
-// old flow's promise immediately instead of the renderer waiting for the
-// 5-minute timeout (and later showing a confusing "timed out" error).
 interface ActiveOAuthFlow {
   server: http.Server;
   fail: (err: Error) => void;
 }
 let activeOAuthFlow: ActiveOAuthFlow | null = null;
 
-/**
- * Thrown when a newer flow aborts a still-pending previous one. The IPC
- * handlers translate this into `{ cancelled: true }` (not an error) so the
- * renderer ignores it — the user simply started a fresh attempt.
- */
 export class OAuthCancelledError extends Error {
   constructor() {
     super('Previous login attempt was cancelled by a newer attempt.');
@@ -70,19 +43,18 @@ export class OAuthCancelledError extends Error {
 
 export function abortActiveOAuthFlow(): void {
   if (activeOAuthFlow) {
-    try { activeOAuthFlow.server.close(); } catch { /* already closed */ }
-    try { activeOAuthFlow.fail(new OAuthCancelledError()); } catch { /* already settled */ }
+    try { activeOAuthFlow.server.close(); } catch { }
+    try { activeOAuthFlow.fail(new OAuthCancelledError()); } catch { }
     activeOAuthFlow = null;
   }
 }
 
-/** Resolve the redirect URI from the OS-assigned ephemeral port. */
 function resolveRedirectUri(server: http.Server): string {
   const addr = server.address();
   const port = addr && typeof addr === 'object' ? addr.port : 0;
   return `http://${LOOPBACK_HOST}:${port}/oauth/callback`;
 }
-const CALLBACK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
 
 const SUCCESS_HTML =
   '<html><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh">' +
@@ -100,30 +72,22 @@ export function createOAuthClient(redirectUri: string) {
 
 export interface OAuthFlowResult {
   account: AccountRow;
-  /** True when a new storage folder (`LizVault_Data`) was created on this account's Drive. */
   folderCreated: boolean;
 }
 
 export interface LoginFlowResult {
   user: UserRow;
-  /** True when the vault `LizVault` folder was newly created on the main account. */
   folderCreated: boolean;
 }
 
 export async function initiateOAuthFlow(userId: number): Promise<OAuthFlowResult> {
-  // Fail fast (before opening a browser / binding a port) when credentials
-  // are missing — surfaces a clear error through the IPC handler.
   assertCredentialsConfigured();
   return new Promise<OAuthFlowResult>((resolve, reject) => {
-    // Cancel any previous (still-pending) OAuth flow so its port frees up and
-    // its renderer-side invoke settles immediately.
     abortActiveOAuthFlow();
     const server = http.createServer();
     let settled = false;
     let callbackReceived = false;
     let timeout: NodeJS.Timeout | undefined;
-    // Resolved once the listener is bound (ephemeral port) — read by the
-    // request handler and the browser-opening code below.
     let redirectUri = '';
 
     const cleanup = () => {
@@ -162,8 +126,6 @@ export async function initiateOAuthFlow(userId: number): Promise<OAuthFlowResult
       if (timeout) clearTimeout(timeout);
 
       if (!code) {
-        // Google's own "Cancel" button on the consent page redirects here with
-        // error=access_denied — a real, detectable cancellation.
         cleanup();
         reject(new Error(
           errParam === 'access_denied'
@@ -219,7 +181,6 @@ async function completeOAuth(code: string, redirectUri: string, userId: number):
   }
   console.log('[OAuth] Got refresh token ✓');
 
-  // Get user email
   const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
   const userInfo = await oauth2.userinfo.get();
   const email = userInfo.data.email;
@@ -228,16 +189,12 @@ async function completeOAuth(code: string, redirectUri: string, userId: number):
   }
   console.log('[OAuth] User email:', email);
 
-  // Get Drive quota info
   const drive = google.drive({ version: 'v3', auth: oauth2Client });
   const about = await drive.about.get({ fields: 'storageQuota' });
   const limit = about.data.storageQuota?.limit ? parseInt(about.data.storageQuota.limit, 10) : null;
   const usage = about.data.storageQuota?.usage ? parseInt(about.data.storageQuota.usage, 10) : null;
   console.log('[OAuth] Drive quota — limit:', limit, 'usage:', usage);
 
-  // Create/find the STORAGE folder (holds raw chunks — the manifest does NOT
-  // live here anymore). Prefer the current name, accept the legacy name so
-  // folders created by older builds are reused.
   let rootFolderId = null;
   let folderCreated = false;
   const { id, created } = await findOrCreateFolder(drive, STORAGE_FOLDER_NAME, LEGACY_STORAGE_NAME);
@@ -245,8 +202,6 @@ async function completeOAuth(code: string, redirectUri: string, userId: number):
   folderCreated = created;
   console.log(`[OAuth] ${created ? 'Created' : 'Found existing'} ${STORAGE_FOLDER_NAME} storage folder:`, rootFolderId);
 
-  // Save account locally (config.json) — the refresh token is the key that
-  // locates the vault manifest on Drive, so it stays off Drive itself.
   console.log('[OAuth] Saving account to local config…');
   const account = addAccount({
     user_id: userId,
@@ -262,17 +217,11 @@ async function completeOAuth(code: string, redirectUri: string, userId: number):
 }
 
 export function getDriveClient(refreshToken: string) {
-  // Redirect URI is unused for refresh-token flows; any value works.
   const client = createOAuthClient('http://127.0.0.1/oauth/callback');
   client.setCredentials({ refresh_token: refreshToken });
   return google.drive({ version: 'v3', auth: client });
 }
 
-/**
- * Find an existing folder (preferred name, then legacy) or create a new one
- * with the preferred name. Shared by login, connect, manifest and the upload
- * 404-retry so the folder-name pairs never drift apart.
- */
 export async function findOrCreateFolder(drive: any, preferredName: string, legacyName: string): Promise<{ id: string; created: boolean }> {
   const query = `(name='${preferredName}' or name='${legacyName}') and mimeType='application/vnd.google-apps.folder' and trashed=false`;
   const existing = await drive.files.list({ q: query, spaces: 'drive', fields: 'files(id, name)' });
@@ -287,12 +236,6 @@ export async function findOrCreateFolder(drive: any, preferredName: string, lega
   return { id: folder.data.id!, created: true };
 }
 
-/**
- * Verifies an account's refresh token still works with a lightweight Drive
- * API call. Refresh tokens for testing-mode OAuth clients expire after 7 days,
- * and revoked/expired tokens surface here as a clear error so the UI can show
- * a "re-login" state. The IPC handler persists the result.
- */
 export async function testAccountToken(userId: number, accountId: number): Promise<{ ok: boolean; expired?: boolean; error?: string }> {
   try {
     const account = getAccount(accountId, userId);
@@ -302,21 +245,13 @@ export async function testAccountToken(userId: number, accountId: number): Promi
     return { ok: true };
   } catch (e: any) {
     const msg = String(e?.message || e);
-    // Auth-class errors mean the token itself is dead — a definitive "expired".
     if (/unauthorized_client|invalid_grant|invalid_client/i.test(msg)) {
       return { ok: false, expired: true, error: 'Your Google login has expired or was revoked. Re-login to continue.' };
     }
-    // Everything else (network, missing credentials, 5xx) is transient — do NOT
-    // mark the account expired; just surface the error for display.
     return { ok: false, expired: false, error: msg };
   }
 }
 
-/**
- * Login flow — same loopback OAuth as initiateOAuthFlow but saves the result
- * to the `users` table instead of `accounts`. Throws if the email is already
- * in use as a drive storage account.
- */
 export async function initiateLoginFlow(): Promise<LoginFlowResult> {
   assertCredentialsConfigured();
   return new Promise<LoginFlowResult>((resolve, reject) => {
@@ -386,8 +321,6 @@ export async function initiateLoginFlow(): Promise<LoginFlowResult> {
         redirectUri = resolveRedirectUri(server);
         console.log('[Login] redirect URI:', redirectUri);
         const oauth2Client = createOAuthClient(redirectUri);
-        // Drive access is part of login now — the main account hosts the
-        // vault manifest, so the consent screen requests drive.file too.
         const authUrl = oauth2Client.generateAuthUrl({
           access_type: 'offline',
           scope: [
@@ -431,8 +364,6 @@ async function completeLoginOAuth(code: string, redirectUri: string): Promise<Lo
   if (!email) throw new Error('Failed to retrieve email from Google.');
   console.log('[Login] User email:', email);
 
-  // Create/find the MAIN account's vault folder (best-effort — a failure here
-  // must not block login; ensureManifestLoaded self-heals it later).
   let rootFolderId: string | null = null;
   let folderCreated = false;
   try {
@@ -448,8 +379,6 @@ async function completeLoginOAuth(code: string, redirectUri: string): Promise<Lo
   const user = addUser({ email, refresh_token: tokens.refresh_token, display_name: displayName, avatar_url: avatarUrl, root_folder_id: rootFolderId });
   console.log('[Login] User saved ✓ id:', user.id);
 
-  // Seed the vault manifest in the main account's folder (never overwrites an
-  // existing one — that is how a second device finds its vault).
   await seedManifestForUser(user);
   return { user, folderCreated };
 }

@@ -1,10 +1,5 @@
 import React, { createContext, useCallback, useContext, useState } from 'react';
 
-/**
- * Lightweight toast system (no dependency) rendered in the TOP-RIGHT corner,
- * below the 72px header. Used for transient warnings/successes; blocking
- * choices (delete confirm, batch listing, rename input) stay in their modals.
- */
 
 export type ToastKind = 'error' | 'success' | 'info';
 
@@ -80,8 +75,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode; queueSlot?: Re
   return (
     <ToastContext.Provider value={value}>
       {children}
-      {/* Top-right stack — 20px from the top AND right edges (matches the
-          transfer queue which renders below it in the same column). */}
+      {}
       <div className="pointer-events-none fixed right-5 top-5 z-[3000] flex w-[360px] flex-col items-stretch gap-2">
         {toasts.map(t => (
           <div

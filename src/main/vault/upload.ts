@@ -13,7 +13,6 @@ export async function uploadFile(userId: number, mainWindow: BrowserWindow, file
   const stat = fs.statSync(filePath);
   const totalBytes = stat.size;
 
-  // Insert to DB as uploading
   const fileRow = addFile({
     user_id: userId,
     name: fileName,
@@ -44,7 +43,6 @@ export async function uploadFile(userId: number, mainWindow: BrowserWindow, file
         throw new Error('No Google Drive accounts linked.');
       }
 
-      // Find account with most available space that can fit this chunk
       let targetAccount = null;
       let maxAvailable = -1;
 
@@ -56,7 +54,6 @@ export async function uploadFile(userId: number, mainWindow: BrowserWindow, file
             targetAccount = account;
           }
         } else {
-          // If quota is unknown, assume it has space for MVP purposes
           if (maxAvailable === -1) {
             targetAccount = account;
           }
@@ -64,7 +61,7 @@ export async function uploadFile(userId: number, mainWindow: BrowserWindow, file
       }
 
       if (!targetAccount) {
-        targetAccount = accounts[0]; // fallback
+        targetAccount = accounts[0];
       }
 
       if (maxAvailable !== -1 && maxAvailable < chunkSize) {
@@ -81,10 +78,8 @@ export async function uploadFile(userId: number, mainWindow: BrowserWindow, file
       }
 
       let chunkBytesRead = 0;
-      // Track progress while streaming to Google
       stream.on('data', (dataChunk: Buffer | string) => {
         chunkBytesRead += dataChunk.length;
-        // Emit progress
         mainWindow.webContents.send('upload:progress', {
           fileId,
           fileName,
@@ -101,7 +96,6 @@ export async function uploadFile(userId: number, mainWindow: BrowserWindow, file
 
       let driveFileId;
       try {
-        // Upload chunk to Drive
         const driveFile = await drive.files.create({
           requestBody: {
             name: `${fileName}.chunk${chunkIndex}`,
@@ -114,14 +108,11 @@ export async function uploadFile(userId: number, mainWindow: BrowserWindow, file
       } catch (err: any) {
         if (err.code === 404 && targetAccount.root_folder_id) {
           console.warn('[Upload] 404 on upload. Root folder missing. Re-creating LizVault_Data...');
-          // Reuse an existing storage folder if one was recreated elsewhere,
-          // otherwise create a fresh one (legacy name accepted).
           const { id: newRootId } = await findOrCreateFolder(drive, 'LizVault_Data', 'LizVault');
 
           updateAccountRootFolder(targetAccount.id, userId, newRootId);
           targetAccount.root_folder_id = newRootId;
 
-          // Re-create stream for retry
           chunkBytesRead = 0;
           let newStream;
           if (totalBytes === 0) {
@@ -148,8 +139,6 @@ export async function uploadFile(userId: number, mainWindow: BrowserWindow, file
         }
       }
 
-      // Save chunk to the manifest (referenced by account email so the
-      // manifest stays portable across devices).
       addChunk({
         file_id: fileId,
         account_email: targetAccount.email,
@@ -159,7 +148,6 @@ export async function uploadFile(userId: number, mainWindow: BrowserWindow, file
         status: 'uploaded'
       });
 
-      // Update account usage (approximate by adding chunk size)
       if (targetAccount.used_bytes !== null) {
         updateAccountUsage(targetAccount.id, userId, targetAccount.used_bytes + chunkSize);
       }

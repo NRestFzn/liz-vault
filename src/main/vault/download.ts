@@ -40,7 +40,6 @@ export async function downloadFile(userId: number, mainWindow: BrowserWindow, fi
         response.data
           .on('data', (dataChunk: Buffer) => {
             bytesDownloaded += dataChunk.length;
-            // Emit progress continuously
             mainWindow.webContents.send('download:progress', {
               fileId,
               fileName: fileRow.name,
@@ -55,7 +54,7 @@ export async function downloadFile(userId: number, mainWindow: BrowserWindow, fi
           .on('error', (err: any) => {
             reject(err);
           })
-          .pipe(writeStream, { end: false }); // Don't end writeStream until all chunks are done
+          .pipe(writeStream, { end: false });
       });
 
       chunkIndex++;
