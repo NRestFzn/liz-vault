@@ -1,27 +1,20 @@
-# ========== Dependencies ==========
 node_modules/
 
-# ========== Build Output ==========
 dist/
 
-# ========== Secrets / Environment ==========
 .env
 
-# ========== SQLite Database ==========
 *.db
 *.db-shm
 *.db-wal
 
-# ========== Electron Build Artifacts ==========
 out/
 release/
 
-# ========== OS Files ==========
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# ========== Editor / IDE ==========
 .vscode/
 .idea/
 *.suo
@@ -29,22 +22,21 @@ desktop.ini
 *.swp
 *.swo
 
-# ========== Logs ==========
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# ========== TypeScript Cache ==========
 *.tsbuildinfo
 
-# ========== Electron-specific ==========
 app/
 
-# ========== Graphify (local knowledge graph — not pushed) ==========
 graphify-out/
 src/graphify-out/
 .graphifyignore
 
-# ========== Temp / Scratch ==========
 .freebuff/
+
+# NOTE: .agents/ is intentionally TRACKED (AGENTS.md, PRD.md, SESSION_STATE.md,
+# DESIGN.md, tasks/*.md task history, skills). Do NOT add it to .gitignore —
+# that would silently drop the task files.
