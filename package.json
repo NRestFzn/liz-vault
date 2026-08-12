@@ -7,7 +7,9 @@
     "build:main": "tsc -p tsconfig.main.json",
     "build:renderer": "esbuild src/renderer/index.tsx --bundle --outfile=dist/renderer/bundle.js --loader:.tsx=tsx --loader:.ts=ts",
     "build:css": "tailwindcss -i src/renderer/tailwind.css -o dist/renderer/index.css",
-    "build": "npm run build:main && npm run build:renderer && npm run build:css",
+    "copy:html": "node -e \"require('fs').copyFileSync('src/renderer/index.html','dist/renderer/index.html')\"",
+    "build": "npm run build:main && npm run build:renderer && npm run build:css && npm run copy:html",
+    "dist": "npm run build && electron-builder",
     "watch:main": "tsc -p tsconfig.main.json -w",
     "watch:renderer": "esbuild src/renderer/index.tsx --bundle --outfile=dist/renderer/bundle.js --loader:.tsx=tsx --loader:.ts=ts --watch",
     "watch:css": "tailwindcss -i src/renderer/tailwind.css -o dist/renderer/index.css --watch",
@@ -17,16 +19,23 @@
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "build": {
+    "appId": "com.lizvault.app",
+    "productName": "LizVault",
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "icon": "assets/icons/LizVault_Logo.png"
+    }
+  },
   "dependencies": {
-    "better-sqlite3": "https://github.com/WiseLibs/better-sqlite3/archive/refs/tags/v12.12.0.tar.gz",
-    "dotenv": "^17.4.2",
     "googleapis": "^174.0.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.3.3",
-    "@types/better-sqlite3": "^9.6.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "concurrently": "^10.0.4",

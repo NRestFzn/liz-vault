@@ -8,6 +8,7 @@ import { FileExplorer } from './pages/FileExplorer';
 import { QuotaTracker } from './pages/QuotaTracker';
 import { Starred } from './pages/Starred';
 import { Settings } from './pages/Settings';
+import { ToastProvider } from './components/Toast';
 import { SearchResultRow, UserRow } from '../shared/types';
 
 const { ipcRenderer } = window.require('electron');
@@ -103,8 +104,6 @@ const App = () => {
         )}
       </main>
 
-      <TransferQueue />
-
       {detailFile && (
         <FileDetailModal
           file={detailFile}
@@ -119,5 +118,11 @@ const App = () => {
 const rootEl = document.getElementById('root');
 if (rootEl) {
   const root = createRoot(rootEl);
-  root.render(<App />);
+  root.render(
+    // The transfer queue renders inside the toast provider's top-right column,
+    // below the toast stack, so the two never overlap.
+    <ToastProvider queueSlot={<TransferQueue />}>
+      <App />
+    </ToastProvider>
+  );
 }

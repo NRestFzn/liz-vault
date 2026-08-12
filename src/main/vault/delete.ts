@@ -1,4 +1,4 @@
-import { getChunksForFile, getAccount, removeFile, getChildIds, getFile, updateAccountUsage } from '../db/queries';
+import { getChunksForFile, getAccountByEmail, removeFile, getChildIds, getFile, updateAccountUsage } from '../db/queries';
 import { getDriveClient } from '../google/auth';
 
 /**
@@ -40,7 +40,7 @@ export async function deleteFileChunks(userId: number, fileId: number): Promise<
 
     for (const chunk of chunks) {
       try {
-        const account = getAccount(chunk.account_id, userId);
+        const account = getAccountByEmail(chunk.account_email);
         if (account) {
           const drive = getDriveClient(account.refresh_token);
 

@@ -5,6 +5,7 @@ import { FileTypeIcon } from './FileTypeIcon';
 import { ThumbnailImage } from './ThumbnailImage';
 import { ConfirmDialog } from './ConfirmDialog';
 import { RenameModal } from './RenameModal';
+import { useToast } from './Toast';
 
 const { ipcRenderer } = window.require('electron');
 
@@ -52,6 +53,7 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({ file, onClose,
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
 
+  const { toastError } = useToast();
   const typeInfo = getFileTypeInfo(displayName);
   // Full breadcrumb path, Google Drive style: "All Files / Random / Apalah".
   const location =
@@ -82,10 +84,14 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({ file, onClose,
 
   const toggleStar = async () => {
     try {
-      await ipcRenderer.invoke('file:star', { fileId: file.id, starred: !starred });
-      setStarred(v => !v);
-    } catch (e) {
-      console.error(e);
+      const res = await ipcRenderer.invoke('file:star', { fileId: file.id, starred: !starred });
+      if (res?.error) {
+        toastError(res.error);
+      } else {
+        setStarred(v => !v);
+      }
+    } catch (e: any) {
+      toastError(String(e));
     }
   };
 
@@ -93,10 +99,11 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({ file, onClose,
     try {
       const { filePath } = await ipcRenderer.invoke('file:pick-download-path', displayName);
       if (filePath) {
-        await ipcRenderer.invoke('file:download', { fileId: file.id, savePath: filePath });
+        const res = await ipcRenderer.invoke('file:download', { fileId: file.id, savePath: filePath });
+        if (res?.error) toastError(res.error);
       }
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      toastError(String(e));
     }
   };
 
@@ -110,8 +117,8 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({ file, onClose,
       if (res?.file) setDisplayName(res.file.name);
       setRenameOpen(false);
       setRenameError(null);
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      toastError(String(e));
     }
   };
 
@@ -141,9 +148,10 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({ file, onClose,
 
   const runDelete = async () => {
     try {
-      await ipcRenderer.invoke('file:delete', { fileId: file.id });
-    } catch (e) {
-      console.error(e);
+      const res = await ipcRenderer.invoke('file:delete', { fileId: file.id });
+      if (res?.error) toastError(res.error);
+    } catch (e: any) {
+      toastError(String(e));
     }
     onClose();
   };

@@ -19,11 +19,15 @@ export interface UserRow {
   refresh_token: string;
   display_name: string | null;
   avatar_url: string | null;
+  /** Drive folder id on the MAIN account that hosts the vault manifest.json. */
+  root_folder_id: string | null;
   added_at: string;
 }
 
 export interface IpcUserLoginResponse {
   user?: UserRow;
+  /** True when the vault `LizVault` folder was newly created on the main account. */
+  folderCreated?: boolean;
   /** Set when a newer login attempt cancelled this one (not an error). */
   cancelled?: boolean;
   error?: string;
@@ -61,7 +65,8 @@ export interface SearchResultRow extends FileRow {
 export interface ChunkRow {
   id: number;
   file_id: number;
-  account_id: number;
+  /** Account that holds this chunk, referenced by email (device-stable — the manifest is portable across devices). */
+  account_email: string;
   drive_file_id: string;
   sequence: number;
   size_bytes: number;
@@ -73,6 +78,8 @@ export interface ChunkRow {
 // 1. Accounts
 export interface IpcAccountAddResponse {
   account?: AccountRow;
+  /** True when a new storage folder (`LizVault_Data`) was created on this account's Drive. */
+  folderCreated?: boolean;
   /** Set when a newer connect attempt cancelled this one (not an error). */
   cancelled?: boolean;
   error?: string;

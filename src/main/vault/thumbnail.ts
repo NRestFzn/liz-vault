@@ -1,4 +1,4 @@
-import { getFile, getChunksForFile, getAccount } from '../db/queries';
+import { getFile, getChunksForFile, getAccountByEmail } from '../db/queries';
 import { getDriveClient } from '../google/auth';
 import { isBrowserDecodableImage, getImageMime } from '../../shared/fileCategory';
 
@@ -49,7 +49,7 @@ async function fetchThumbnail(userId: number, fileId: number): Promise<string | 
   const firstChunk = chunks.find(c => c.sequence === 0) ?? chunks[0];
   if (!firstChunk) return null;
 
-  const account = getAccount(firstChunk.account_id, userId);
+  const account = getAccountByEmail(firstChunk.account_email);
   if (!account) return null;
 
   const drive = getDriveClient(account.refresh_token);

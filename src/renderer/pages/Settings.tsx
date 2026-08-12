@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useToast } from '../components/Toast';
 
 const { ipcRenderer } = window.require('electron');
 
@@ -11,14 +12,12 @@ export const Settings: React.FC = () => {
   const [autoRenameDuplicates, setAutoRenameDuplicates] = useState(true);
   const [autoRefreshQuota, setAutoRefreshQuota] = useState(true);
   const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { toastError, toastSuccess } = useToast();
 
   // Google API credentials
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [showSecret, setShowSecret] = useState(false);
-  const [credsSaved, setCredsSaved] = useState(false);
-  const [credsError, setCredsError] = useState<string | null>(null);
   const [credsLoaded, setCredsLoaded] = useState(false);
 
   useEffect(() => {
@@ -39,18 +38,15 @@ export const Settings: React.FC = () => {
   }, []);
 
   const handleSaveCredentials = async () => {
-    setCredsError(null);
-    setCredsSaved(false);
     try {
       const res = await ipcRenderer.invoke('credentials:set', { clientId, clientSecret });
       if (res.error) {
-        setCredsError(res.error);
+        toastError(res.error);
       } else {
-        setCredsSaved(true);
-        setTimeout(() => setCredsSaved(false), 2500);
+        toastSuccess('Google API credentials saved.');
       }
     } catch (e: any) {
-      setCredsError(String(e));
+      toastError(String(e));
     }
   };
 
@@ -59,17 +55,16 @@ export const Settings: React.FC = () => {
     if (key === 'confirmDelete') setConfirmDelete(value);
     else if (key === 'autoRenameDuplicates') setAutoRenameDuplicates(value);
     else setAutoRefreshQuota(value);
-    setError(null);
     try {
       const res = await ipcRenderer.invoke('settings:set', { [key]: value });
       if (res.error) {
-        setError(res.error);
+        toastError(res.error);
         if (key === 'confirmDelete') setConfirmDelete(prev);
         else if (key === 'autoRenameDuplicates') setAutoRenameDuplicates(prev);
         else setAutoRefreshQuota(prev); // roll back on failure
       }
     } catch (e: any) {
-      setError(String(e));
+      toastError(String(e));
       if (key === 'confirmDelete') setConfirmDelete(prev);
       else if (key === 'autoRenameDuplicates') setAutoRenameDuplicates(prev);
       else setAutoRefreshQuota(prev); // roll back on failure
@@ -134,7 +129,7 @@ export const Settings: React.FC = () => {
               <input
                 type="text"
                 value={clientId}
-                onChange={(e) => { setClientId(e.target.value); setCredsError(null); }}
+                onChange={(e) => setClientId(e.target.value)}
                 placeholder="1234567890-abcdef.apps.googleusercontent.com"
                 className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13px] text-ink transition-colors duration-150 placeholder:text-muted focus:border-accent focus:shadow-[0_0_0_3px_rgba(51,102,255,0.08)] focus:outline-none"
               />
@@ -145,7 +140,7 @@ export const Settings: React.FC = () => {
                 <input
                   type={showSecret ? 'text' : 'password'}
                   value={clientSecret}
-                  onChange={(e) => { setClientSecret(e.target.value); setCredsError(null); }}
+                  onChange={(e) => setClientSecret(e.target.value)}
                   placeholder="GOCSPX-…"
                   className="w-full min-w-0 bg-transparent px-3 py-2 text-[13px] text-ink placeholder:text-muted focus:outline-none"
                 />
@@ -171,8 +166,6 @@ export const Settings: React.FC = () => {
               >
                 Save
               </button>
-              {credsSaved && <span className="text-[12px] font-medium text-emerald-600">Saved ✓</span>}
-              {credsError && <span className="text-[12px] text-video">{credsError}</span>}
             </div>
           </div>
         </div>
@@ -212,8 +205,6 @@ export const Settings: React.FC = () => {
             <Toggle checked={autoRefreshQuota} onToggle={() => handleToggle('autoRefreshQuota', !autoRefreshQuota)} />
           </div>
         </div>
-
-        {error && <div className="mt-3 text-[12px] text-video">{error}</div>}
       </div>
     </div>
   );

@@ -9,9 +9,10 @@ import { RenameModal } from '../components/RenameModal';
 import { ThumbnailImage } from '../components/ThumbnailImage';
 import { FileTypeIcon } from '../components/FileTypeIcon';
 import { TruncatedLabel } from '../components/TruncatedLabel';
+import { useToast } from '../components/Toast';
 import { splitFileName } from '../../shared/fileCategory';
 
-const { ipcRenderer } = window.require('electron');
+const { ipcRenderer, webUtils } = window.require('electron');
 
 interface FileExplorerProps {
   viewMode: 'list' | 'grid';
@@ -62,8 +63,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
   const [selectedFiles, setSelectedFiles] = useState<Set<number>>(new Set());
   const [renameTarget, setRenameTarget] = useState<FileRowType | null>(null);
   const [renameError, setRenameError] = useState<string | null>(null);
-  // Duplicate-name warning (shown when the auto-rename setting is off).
-  const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
+  const { toastError } = useToast();
 
   const loadItems = useCallback(async () => {
     const res = await ipcRenderer.invoke('files:in-folder', { folderId });
@@ -167,7 +167,9 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
   const startUpload = async (filePath: string, fileName: string) => {
     const res = await ipcRenderer.invoke('file:upload', { filePath, fileName, parentFolderId: folderId });
     if (res?.duplicate) {
-      setDuplicateWarning(`A file named “${fileName}” already exists here.`);
+      toastError(`A file named “${fileName}” already exists here.`);
+    } else if (res?.error) {
+      toastError(res.error);
     }
   };
 
@@ -243,29 +245,40 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
     e.preventDefault();
     e.stopPropagation();
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const file = e.dataTransfer.files[0];
-      const filePath = (file as any).path;
-      startUpload(filePath, file.name);
+      // `File.path` was removed in Electron 32 — the only supported way to
+      // get the dropped file's disk path is webUtils.getPathForFile().
+      for (const file of Array.from(e.dataTransfer.files)) {
+        const filePath = webUtils.getPathForFile(file);
+        if (filePath) startUpload(filePath, file.name);
+      }
     }
   };
 
   const handleCreateFolder = async () => {
     if (!newFolderName.trim()) return;
-    const res = await ipcRenderer.invoke('folder:create', {
-      name: newFolderName,
-      parentFolderId: folderId
-    });
-    if (res.duplicate) {
+    try {
+      const res = await ipcRenderer.invoke('folder:create', {
+        name: newFolderName,
+        parentFolderId: folderId
+      });
+      if (res.duplicate) {
+        setIsCreateFolderOpen(false);
+        toastError(`A folder named “${newFolderName.trim()}” already exists here.`);
+        setNewFolderName('');
+        return;
+      }
+      if (res.error) {
+        toastError(res.error);
+        return;
+      }
+      if (res.folder) {
+        setItems(prev => [res.folder, ...prev]);
+      }
       setIsCreateFolderOpen(false);
-      setDuplicateWarning(`A folder named “${newFolderName.trim()}” already exists here.`);
       setNewFolderName('');
-      return;
+    } catch (e: any) {
+      toastError(String(e));
     }
-    if (res.folder) {
-      setItems(prev => [res.folder, ...prev]);
-    }
-    setIsCreateFolderOpen(false);
-    setNewFolderName('');
   };
 
   const handleRenameConfirm = async (newName: string) => {
@@ -640,19 +653,6 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
           onConfirm={handleRenameConfirm}
           onCancel={() => { setRenameTarget(null); setRenameError(null); }}
         />
-      )}
-
-      {/* Duplicate-name warning (shown when the auto-rename setting is off) */}
-      {duplicateWarning && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 backdrop-blur-[2px]">
-          <div className="w-[400px] max-w-[90vw] rounded-xl border border-line bg-panel p-6 shadow-[0_10px_30px_rgba(0,0,0,0.1)]">
-            <h3 className="mb-4 text-[18px] font-semibold text-ink">Already Exists</h3>
-            <div className="mb-6 text-[13px] leading-relaxed text-muted">{duplicateWarning}</div>
-            <div className="flex justify-end gap-2">
-              <button className="btn-primary" onClick={() => setDuplicateWarning(null)}>OK</button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );

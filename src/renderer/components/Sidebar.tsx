@@ -1,9 +1,16 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { AccountRow, StorageCategories, UserRow } from '../../shared/types';
 import { OAuthWaitingModal } from './OAuthWaitingModal';
+import { VaultReadyModal } from './VaultReadyModal';
 import { TruncatedLabel } from './TruncatedLabel';
+import { useToast } from './Toast';
 
 const { ipcRenderer } = window.require('electron');
+
+// Resolve the logo relative to the HTML document so it works from both
+// src/renderer (dev) and dist/renderer (packaged) — the icon lives in
+// assets/ at the project root.
+const APP_ICON = new URL('../../assets/icons/LizVault_Logo.png', window.location.href).href;
 
 interface SidebarProps {
   activeView: string;
@@ -28,7 +35,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
   const [categories, setCategories] = useState<StorageCategories>({ photo: 0, video: 0, document: 0, other: 0 });
   const [user, setUser] = useState<UserRow | null>(null);
   const [loginLoading, setLoginLoading] = useState(false);
-  const [loginError, setLoginError] = useState<string | null>(null);
+  const { toastError } = useToast();
+  // Set when first login created the vault folder on the main account — the
+  // modal explains what was created and why (replaces a transient toast).
+  const [showVaultReady, setShowVaultReady] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -77,14 +87,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
 
   const handleLogin = async () => {
     setLoginLoading(true);
-    setLoginError(null);
     try {
       const res = await ipcRenderer.invoke('user:login');
       // A retry aborts the previous attempt — its response is `cancelled`,
       // which should never surface as an error (and must not linger after a
       // successful login either).
       if (res.cancelled) return;
-      if (res.error) setLoginError(res.error);
+      if (res.error) {
+        toastError(res.error);
+      } else if (res.folderCreated) {
+        // First login on this Google account — the main account now hosts the
+        // vault folder + manifest. Show the explainer modal (read → check → close).
+        setShowVaultReady(true);
+      }
     } finally {
       setLoginLoading(false);
     }
@@ -99,7 +114,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
       await ipcRenderer.invoke('oauth:cancel');
     } finally {
       setLoginLoading(false);
-      setLoginError(null);
     }
   };
 
@@ -126,7 +140,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
     <aside className="no-drag relative flex h-full w-[240px] min-w-[240px] flex-col border-r border-line bg-panel">
       {/* Logo */}
       <div className="flex h-[72px] items-center gap-2.5 border-b border-line px-6">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent text-[14px] font-bold text-white">L</div>
+        <img
+          src={APP_ICON}
+          alt="LizVault"
+          draggable={false}
+          className="h-8 w-8 flex-shrink-0 rounded-lg object-cover"
+        />
         <span className="text-[16px] font-bold tracking-tight text-ink">LizVault</span>
       </div>
 
@@ -154,7 +173,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
             <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-surface text-[14px] text-muted">?</div>
             <span>Not logged in</span>
           </div>
-          {loginError && <div className="text-[11px] text-video">{loginError}</div>}
           <button
             className="btn-primary w-full py-1.5 text-[12px]"
             onClick={handleLogin}
@@ -227,6 +245,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
         <OAuthWaitingModal
           title="Sign in to LizVault"
           onCancel={handleCancelLogin}
+        />
+      )}
+
+      {/* First-login explainer: the vault folder + manifest were created on the
+          main account's Drive — let the user read it, then close. */}
+      {showVaultReady && user && (
+        <VaultReadyModal
+          email={user.email}
+          onClose={() => setShowVaultReady(false)}
         />
       )}
     </aside>

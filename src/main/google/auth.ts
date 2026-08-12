@@ -1,8 +1,16 @@
 import { google } from 'googleapis';
 import { shell } from 'electron';
 import http from 'http';
-import { addAccount, addUser, getAllAccounts, getAccount, getAppState } from '../db/queries';
+import { addAccount, addUser, getAccount, getGoogleCredentials, seedManifestForUser } from '../db/queries';
 import { AccountRow, UserRow } from '../../shared/types';
+
+// MAIN account folder — hosts the vault manifest.json (created at login).
+const VAULT_FOLDER_NAME = 'LizVault';
+// STORAGE account folder — holds the raw chunk files (created on Connect Drive).
+const STORAGE_FOLDER_NAME = 'LizVault_Data';
+// Each lookup accepts the other name so folders from older builds are reused.
+const LEGACY_FOLDER_NAME = STORAGE_FOLDER_NAME; // old main-account name
+const LEGACY_STORAGE_NAME = VAULT_FOLDER_NAME; // old storage-account name
 
 const SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
@@ -11,12 +19,10 @@ const SCOPES = [
 ];
 
 // Google API credentials are configured in the Settings page and stored in
-// the app_state table — NOT in .env. Read them live on every OAuth client
+// the local config.json — NOT in .env. Read them live on every OAuth client
 // creation so a settings change applies without a restart.
 function getOAuthCredentials(): { clientId: string; clientSecret: string } {
-  const clientId = getAppState('googleClientId') || '';
-  const clientSecret = getAppState('googleClientSecret') || '';
-  return { clientId, clientSecret };
+  return getGoogleCredentials();
 }
 
 function assertCredentialsConfigured(): void {
@@ -92,11 +98,23 @@ export function createOAuthClient(redirectUri: string) {
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
-export async function initiateOAuthFlow(userId: number): Promise<AccountRow> {
+export interface OAuthFlowResult {
+  account: AccountRow;
+  /** True when a new storage folder (`LizVault_Data`) was created on this account's Drive. */
+  folderCreated: boolean;
+}
+
+export interface LoginFlowResult {
+  user: UserRow;
+  /** True when the vault `LizVault` folder was newly created on the main account. */
+  folderCreated: boolean;
+}
+
+export async function initiateOAuthFlow(userId: number): Promise<OAuthFlowResult> {
   // Fail fast (before opening a browser / binding a port) when credentials
   // are missing — surfaces a clear error through the IPC handler.
   assertCredentialsConfigured();
-  return new Promise<AccountRow>((resolve, reject) => {
+  return new Promise<OAuthFlowResult>((resolve, reject) => {
     // Cancel any previous (still-pending) OAuth flow so its port frees up and
     // its renderer-side invoke settles immediately.
     abortActiveOAuthFlow();
@@ -156,9 +174,9 @@ export async function initiateOAuthFlow(userId: number): Promise<AccountRow> {
       }
 
       try {
-        const account = await completeOAuth(code, redirectUri, userId);
+        const result = await completeOAuth(code, redirectUri, userId);
         cleanup();
-        resolve(account);
+        resolve(result);
       } catch (e) {
         cleanup();
         reject(e as Error);
@@ -190,7 +208,7 @@ export async function initiateOAuthFlow(userId: number): Promise<AccountRow> {
   });
 }
 
-async function completeOAuth(code: string, redirectUri: string, userId: number): Promise<AccountRow> {
+async function completeOAuth(code: string, redirectUri: string, userId: number): Promise<OAuthFlowResult> {
   console.log('[OAuth] Exchanging code for tokens…');
   const oauth2Client = createOAuthClient(redirectUri);
   const { tokens } = await oauth2Client.getToken(code);
@@ -217,28 +235,19 @@ async function completeOAuth(code: string, redirectUri: string, userId: number):
   const usage = about.data.storageQuota?.usage ? parseInt(about.data.storageQuota.usage, 10) : null;
   console.log('[OAuth] Drive quota — limit:', limit, 'usage:', usage);
 
-  // Create root folder "LizVault_Data"
+  // Create/find the STORAGE folder (holds raw chunks — the manifest does NOT
+  // live here anymore). Prefer the current name, accept the legacy name so
+  // folders created by older builds are reused.
   let rootFolderId = null;
-  const query = "name='LizVault_Data' and mimeType='application/vnd.google-apps.folder' and trashed=false";
-  const existing = await drive.files.list({ q: query, spaces: 'drive', fields: 'files(id, name)' });
+  let folderCreated = false;
+  const { id, created } = await findOrCreateFolder(drive, STORAGE_FOLDER_NAME, LEGACY_STORAGE_NAME);
+  rootFolderId = id;
+  folderCreated = created;
+  console.log(`[OAuth] ${created ? 'Created' : 'Found existing'} ${STORAGE_FOLDER_NAME} storage folder:`, rootFolderId);
 
-  if (existing.data.files && existing.data.files.length > 0) {
-    rootFolderId = existing.data.files[0].id!;
-    console.log('[OAuth] Found existing LizVault_Data folder:', rootFolderId);
-  } else {
-    const folder = await drive.files.create({
-      requestBody: {
-        name: 'LizVault_Data',
-        mimeType: 'application/vnd.google-apps.folder'
-      },
-      fields: 'id'
-    });
-    rootFolderId = folder.data.id!;
-    console.log('[OAuth] Created LizVault_Data folder:', rootFolderId);
-  }
-
-  // Save to DB
-  console.log('[OAuth] Saving account to database…');
+  // Save account locally (config.json) — the refresh token is the key that
+  // locates the vault manifest on Drive, so it stays off Drive itself.
+  console.log('[OAuth] Saving account to local config…');
   const account = addAccount({
     user_id: userId,
     email,
@@ -248,7 +257,8 @@ async function completeOAuth(code: string, redirectUri: string, userId: number):
     root_folder_id: rootFolderId
   });
   console.log('[OAuth] Account saved ✓ id:', account.id);
-  return account;
+
+  return { account, folderCreated };
 }
 
 export function getDriveClient(refreshToken: string) {
@@ -256,6 +266,25 @@ export function getDriveClient(refreshToken: string) {
   const client = createOAuthClient('http://127.0.0.1/oauth/callback');
   client.setCredentials({ refresh_token: refreshToken });
   return google.drive({ version: 'v3', auth: client });
+}
+
+/**
+ * Find an existing folder (preferred name, then legacy) or create a new one
+ * with the preferred name. Shared by login, connect, manifest and the upload
+ * 404-retry so the folder-name pairs never drift apart.
+ */
+export async function findOrCreateFolder(drive: any, preferredName: string, legacyName: string): Promise<{ id: string; created: boolean }> {
+  const query = `(name='${preferredName}' or name='${legacyName}') and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+  const existing = await drive.files.list({ q: query, spaces: 'drive', fields: 'files(id, name)' });
+  if (existing.data.files && existing.data.files.length > 0) {
+    const preferred = existing.data.files.find((f: any) => f.name === preferredName) ?? existing.data.files[0];
+    return { id: preferred.id!, created: false };
+  }
+  const folder = await drive.files.create({
+    requestBody: { name: preferredName, mimeType: 'application/vnd.google-apps.folder' },
+    fields: 'id',
+  });
+  return { id: folder.data.id!, created: true };
 }
 
 /**
@@ -288,9 +317,9 @@ export async function testAccountToken(userId: number, accountId: number): Promi
  * to the `users` table instead of `accounts`. Throws if the email is already
  * in use as a drive storage account.
  */
-export async function initiateLoginFlow(): Promise<UserRow> {
+export async function initiateLoginFlow(): Promise<LoginFlowResult> {
   assertCredentialsConfigured();
-  return new Promise<UserRow>((resolve, reject) => {
+  return new Promise<LoginFlowResult>((resolve, reject) => {
     abortActiveOAuthFlow();
     const server = http.createServer();
     let settled = false;
@@ -343,9 +372,9 @@ export async function initiateLoginFlow(): Promise<UserRow> {
       }
 
       try {
-        const user = await completeLoginOAuth(code, redirectUri);
+        const result = await completeLoginOAuth(code, redirectUri);
         cleanup();
-        resolve(user);
+        resolve(result);
       } catch (e) {
         cleanup();
         reject(e as Error);
@@ -357,11 +386,15 @@ export async function initiateLoginFlow(): Promise<UserRow> {
         redirectUri = resolveRedirectUri(server);
         console.log('[Login] redirect URI:', redirectUri);
         const oauth2Client = createOAuthClient(redirectUri);
+        // Drive access is part of login now — the main account hosts the
+        // vault manifest, so the consent screen requests drive.file too.
         const authUrl = oauth2Client.generateAuthUrl({
           access_type: 'offline',
           scope: [
             'https://www.googleapis.com/auth/userinfo.email',
             'https://www.googleapis.com/auth/userinfo.profile',
+            'https://www.googleapis.com/auth/drive.file',
+            'https://www.googleapis.com/auth/drive.metadata.readonly',
           ],
           prompt: 'consent',
         });
@@ -379,7 +412,7 @@ export async function initiateLoginFlow(): Promise<UserRow> {
   });
 }
 
-async function completeLoginOAuth(code: string, redirectUri: string): Promise<UserRow> {
+async function completeLoginOAuth(code: string, redirectUri: string): Promise<LoginFlowResult> {
   console.log('[Login] Exchanging code for tokens…');
   const oauth2Client = createOAuthClient(redirectUri);
   const { tokens } = await oauth2Client.getToken(code);
@@ -398,7 +431,25 @@ async function completeLoginOAuth(code: string, redirectUri: string): Promise<Us
   if (!email) throw new Error('Failed to retrieve email from Google.');
   console.log('[Login] User email:', email);
 
-  const user = addUser({ email, refresh_token: tokens.refresh_token, display_name: displayName, avatar_url: avatarUrl });
+  // Create/find the MAIN account's vault folder (best-effort — a failure here
+  // must not block login; ensureManifestLoaded self-heals it later).
+  let rootFolderId: string | null = null;
+  let folderCreated = false;
+  try {
+    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+    const { id, created } = await findOrCreateFolder(drive, VAULT_FOLDER_NAME, LEGACY_FOLDER_NAME);
+    rootFolderId = id;
+    folderCreated = created;
+    console.log(`[Login] ${created ? 'Created' : 'Found existing'} ${VAULT_FOLDER_NAME} folder:`, rootFolderId);
+  } catch (e: any) {
+    console.warn('[Login] Failed to ensure vault folder:', e?.message || e);
+  }
+
+  const user = addUser({ email, refresh_token: tokens.refresh_token, display_name: displayName, avatar_url: avatarUrl, root_folder_id: rootFolderId });
   console.log('[Login] User saved ✓ id:', user.id);
-  return user;
+
+  // Seed the vault manifest in the main account's folder (never overwrites an
+  // existing one — that is how a second device finds its vault).
+  await seedManifestForUser(user);
+  return { user, folderCreated };
 }

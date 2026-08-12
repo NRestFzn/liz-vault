@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { FileRow as FileRowType } from '../../shared/types';
 import { ConfirmDialog } from './ConfirmDialog';
 import { BatchDeleteModal } from './BatchDeleteModal';
+import { useToast } from './Toast';
 const { ipcRenderer } = window.require('electron');
 
 interface ContextMenuProps {
@@ -17,6 +18,7 @@ interface ContextMenuProps {
 export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, onOpen, onRename, selectedFiles }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const isFolder = file.is_folder === 1;
+  const { toastError } = useToast();
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -43,12 +45,14 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, o
   const runDelete = async () => {
     try {
       if (targets.length > 1) {
-        await ipcRenderer.invoke('file:delete-many', { fileIds: targets.map(t => t.id) });
+        const res = await ipcRenderer.invoke('file:delete-many', { fileIds: targets.map(t => t.id) });
+        if (res?.error) toastError(res.error);
       } else {
-        await ipcRenderer.invoke('file:delete', { fileId: targets[0].id });
+        const res = await ipcRenderer.invoke('file:delete', { fileId: targets[0].id });
+        if (res?.error) toastError(res.error);
       }
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      toastError(String(e));
     }
     onClose();
   };
@@ -105,10 +109,11 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, o
       try {
         const { filePath } = await ipcRenderer.invoke('file:pick-download-path', target.name);
         if (filePath) {
-          await ipcRenderer.invoke('file:download', { fileId: target.id, savePath: filePath });
+          const res = await ipcRenderer.invoke('file:download', { fileId: target.id, savePath: filePath });
+          if (res?.error) toastError(res.error);
         }
-      } catch (e) {
-        console.error(e);
+      } catch (e: any) {
+        toastError(String(e));
       }
     }
     onClose();
@@ -117,9 +122,10 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, o
   const handleStar = async () => {
     for (const target of targets) {
       try {
-        await ipcRenderer.invoke('file:star', { fileId: target.id, starred: !file.is_starred });
-      } catch (e) {
-        console.error(e);
+        const res = await ipcRenderer.invoke('file:star', { fileId: target.id, starred: !file.is_starred });
+        if (res?.error) toastError(res.error);
+      } catch (e: any) {
+        toastError(String(e));
       }
     }
     onClose();

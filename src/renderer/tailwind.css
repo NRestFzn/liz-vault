@@ -34,6 +34,13 @@
 
   /* Typography */
   --font-sans: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+
+  /* Toast slide-in (top-right) */
+  --animate-toast-in: toast-in 0.18s ease-out;
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateX(16px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
 }
 
 @layer base {

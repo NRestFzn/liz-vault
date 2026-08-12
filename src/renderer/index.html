@@ -9,11 +9,13 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap">
   <title>LizVault</title>
-  <!-- Compiled by tailwindcss (src/renderer/tailwind.css -> dist/renderer/index.css) -->
-  <link rel="stylesheet" href="../../dist/renderer/index.css">
+  <!-- Compiled assets land NEXT TO this file in dist/renderer (bundle.js +
+       index.css), so the paths are relative to this document — the same file
+       is copied there by the build (copy:html) and served in dev and packaged. -->
+  <link rel="stylesheet" href="./index.css">
 </head>
 <body>
   <div id="root"></div>
-  <script src="../../dist/renderer/bundle.js"></script>
+  <script src="./bundle.js"></script>
 </body>
 </html>

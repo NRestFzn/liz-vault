@@ -1,9 +1,12 @@
-import { ipcMain, BrowserWindow } from 'electron';import {
+import { ipcMain, BrowserWindow } from 'electron';
+import {
   getAllAccounts, removeAccount, setAccountTokenStatus,
   getAllFiles, searchFilesAndFolders, removeFile, getFile,
   createFolder, getFilesInFolder, getFolderItemCounts, getFolderPath, toggleStarred, getStarredFiles, getStorageStats,
   renameFile, findDuplicateName, getUniqueName,
-  addUser, getUser, removeUser, getAppState, setAppState, deleteAppState
+  addUser, getUser, removeUser, getAppState, setAppState, deleteAppState,
+  ensureManifestLoaded, invalidateManifestLoaded, resetVaultStore, getActiveUserId, setActiveUserId,
+  getGoogleCredentials, setGoogleCredentials
 } from '../db/queries';
 import { initiateOAuthFlow, initiateLoginFlow, OAuthCancelledError, abortActiveOAuthFlow, testAccountToken } from '../google/auth';
 import { 
@@ -26,9 +29,9 @@ import { deleteFileChunks } from '../vault/delete';
 import { getThumbnailDataUrl, invalidateThumbnail } from '../vault/thumbnail';
 
 function requireUserId(): number {
-  const idStr = getAppState('activeUserId');
-  if (!idStr) throw new Error('Not logged in. Please log in first.');
-  return parseInt(idStr, 10);
+  const id = getActiveUserId();
+  if (id == null) throw new Error('Not logged in. Please log in first.');
+  return id;
 }
 
 export function registerIpcHandlers(mainWindow: BrowserWindow) {
@@ -44,9 +47,13 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
   ipcMain.handle('account:add', async () => {
     try {
       const userId = requireUserId();
-      const account = await initiateOAuthFlow(userId);
+      const { account, folderCreated } = await initiateOAuthFlow(userId);
+      // A fresh login may have loaded the vault from the main account; make
+      // sure the in-memory store reflects Drive before any UI reads it.
+      invalidateManifestLoaded();
+      await ensureManifestLoaded();
       mainWindow.webContents.send('account:added', { account });
-      return { account };
+      return { account, folderCreated };
     } catch (e: any) {
       // A newer attempt cancelled this one — not an error, just signal it so
       // the renderer doesn't show a stale "cancelled" message.
@@ -95,10 +102,15 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
 
   ipcMain.handle('user:login', async () => {
     try {
-      const user = await initiateLoginFlow();
-      setAppState('activeUserId', user.id.toString());
+      const { user, folderCreated } = await initiateLoginFlow();
+      setActiveUserId(user.id);
+      // Drop any previous user's in-memory vault, then load this user's
+      // manifest from the main account's Drive (may already exist from
+      // another device).
+      resetVaultStore();
+      await ensureManifestLoaded();
       mainWindow.webContents.send('user:changed', { user });
-      return { user };
+      return { user, folderCreated };
     } catch (e: any) {
       if (e instanceof OAuthCancelledError) return { cancelled: true };
       return { error: e.message };
@@ -107,7 +119,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
 
   ipcMain.handle('user:logout', async () => {
     try {
-      deleteAppState('activeUserId');
+      setActiveUserId(null);
+      // Clear the in-memory vault so the next login starts clean.
+      resetVaultStore();
       mainWindow.webContents.send('user:changed', { user: null });
       return { success: true };
     } catch (e: any) {
@@ -117,9 +131,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
 
   ipcMain.handle('user:current', async () => {
     try {
-      const idStr = getAppState('activeUserId');
-      if (!idStr) return { user: null };
-      const user = getUser(parseInt(idStr, 10));
+      const userId = getActiveUserId();
+      if (userId == null) return { user: null };
+      const user = getUser(userId);
       return { user: user ?? null };
     } catch (e: any) {
       return { user: null };
@@ -128,6 +142,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
 
   ipcMain.handle('storage:stats', async () => {
     try {
+      await ensureManifestLoaded();
       const userId = requireUserId();
       return { categories: getStorageStats(userId) };
     } catch (e) {
@@ -139,6 +154,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
   
   ipcMain.handle('files:list', async () => {
     try {
+      await ensureManifestLoaded();
       const userId = requireUserId();
       return { files: getAllFiles(userId) };
     } catch (e) {
@@ -149,6 +165,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
   // Global search — folders + files with parent-folder names for breadcrumbs.
   ipcMain.handle('files:search-all', async (_: any, payload: IpcFilesSearchAllRequest): Promise<IpcFilesSearchAllResponse> => {
     try {
+      await ensureManifestLoaded();
       const userId = requireUserId();
       const query = (payload.query || '').trim();
       if (!query) return { results: [] };
@@ -160,6 +177,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
 
   ipcMain.handle('folder:create', async (_: any, payload: IpcFolderCreateRequest): Promise<IpcFolderCreateResponse> => {
     try {
+      await ensureManifestLoaded();
       const userId = requireUserId();
       const name = payload.name.trim();
       if (!name) return { error: 'Folder name cannot be empty' };
@@ -180,6 +198,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
 
   ipcMain.handle('files:in-folder', async (_: any, payload: IpcFilesInFolderRequest): Promise<IpcFilesInFolderResponse> => {
     try {
+      await ensureManifestLoaded();
       const userId = requireUserId();
       return { items: getFilesInFolder(userId, payload.folderId) };
     } catch (e) {
@@ -189,6 +208,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
 
   ipcMain.handle('folders:item-counts', async (_: any, payload: IpcFolderItemCountsRequest): Promise<IpcFolderItemCountsResponse> => {
     try {
+      await ensureManifestLoaded();
       const userId = requireUserId();
       return { counts: getFolderItemCounts(userId, payload.folderIds ?? []) };
     } catch (e) {
@@ -199,6 +219,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
   // Ancestor chain for the breadcrumb (root → current folder).
   ipcMain.handle('folders:path', async (_: any, payload: IpcFolderPathRequest): Promise<IpcFolderPathResponse> => {
     try {
+      await ensureManifestLoaded();
       const userId = requireUserId();
       return { path: getFolderPath(userId, payload.folderId ?? null) };
     } catch (e) {
@@ -208,6 +229,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
 
   ipcMain.handle('files:starred', async () => {
     try {
+      await ensureManifestLoaded();
       const userId = requireUserId();
       return { files: getStarredFiles(userId) };
     } catch (e) {
@@ -217,6 +239,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
 
   ipcMain.handle('file:star', async (_: any, payload: IpcFileStarRequest): Promise<IpcFileStarResponse> => {
     try {
+      await ensureManifestLoaded();
       const userId = requireUserId();
       const file = toggleStarred(payload.fileId, userId, payload.starred);
       if (!file) return { error: 'File not found' };
@@ -232,6 +255,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
 
   ipcMain.handle('file:delete', async (_: any, payload: IpcFileDeleteRequest): Promise<IpcFileDeleteResponse> => {
     try {
+      await ensureManifestLoaded();
       const userId = requireUserId();
       const target = getFile(payload.fileId, userId);
       if (!target) return { error: 'File not found' };
@@ -248,6 +272,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
   // Batch delete — same as single delete, one IPC call for a multi-selection.
   ipcMain.handle('file:delete-many', async (_: any, payload: IpcFilesDeleteManyRequest): Promise<IpcFilesDeleteManyResponse> => {
     try {
+      await ensureManifestLoaded();
       const userId = requireUserId();
       const ids = (payload.fileIds || []).filter((id, idx, arr) => arr.indexOf(id) === idx);
       if (ids.length === 0) return { success: true };
@@ -267,6 +292,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
 
   ipcMain.handle('file:rename', async (_: any, payload: IpcFileRenameRequest): Promise<IpcFileRenameResponse> => {
     try {
+      await ensureManifestLoaded();
       const userId = requireUserId();
       const newName = payload.newName.trim();
       if (!newName) return { error: 'Name cannot be empty' };
@@ -336,10 +362,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
   // -- Google API credentials (configured in Settings, stored in app_state) --
 
   ipcMain.handle('credentials:get', async (): Promise<IpcCredentialsGetResponse> => {
-    return {
-      clientId: getAppState('googleClientId') || '',
-      clientSecret: getAppState('googleClientSecret') || '',
-    };
+    return getGoogleCredentials();
   });
 
   ipcMain.handle('credentials:set', async (_: any, payload: IpcCredentialsSetRequest): Promise<IpcCredentialsSetResponse> => {
@@ -347,8 +370,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
       // Storing empty values clears the saved credentials (removes them).
       const clientId = (payload.clientId || '').trim();
       const clientSecret = (payload.clientSecret || '').trim();
-      setAppState('googleClientId', clientId);
-      setAppState('googleClientSecret', clientSecret);
+      setGoogleCredentials(clientId, clientSecret);
       return { success: true };
     } catch (e: any) {
       return { error: e.message };
@@ -357,6 +379,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
 
   ipcMain.handle('file:thumbnail', async (_: any, payload: { fileId: number }) => {
     try {
+      await ensureManifestLoaded();
       const userId = requireUserId();
       const dataUrl = await getThumbnailDataUrl(userId, payload.fileId);
       return { dataUrl };
@@ -367,6 +390,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
 
   ipcMain.handle('file:upload', async (_: any, payload: IpcFileUploadRequest): Promise<IpcFileUploadResponse> => {
     try {
+      await ensureManifestLoaded();
       const userId = requireUserId();
       const parentId = payload.parentFolderId ?? null;
 
@@ -391,6 +415,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
 
   ipcMain.handle('file:download', async (_: any, payload: IpcFileDownloadRequest): Promise<IpcFileDownloadResponse> => {
     try {
+      await ensureManifestLoaded();
       const userId = requireUserId();
       downloadFile(userId, mainWindow, payload.fileId, payload.savePath).catch(console.error);
       return { success: true };
@@ -428,6 +453,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
   });
 
   ipcMain.on('show-context-menu', (event: any, fileId: any, fileName: string, isStarred: any = 0) => {
+    ensureManifestLoaded().catch(() => {});
     const { Menu, dialog } = require('electron');
     const template = [
       {

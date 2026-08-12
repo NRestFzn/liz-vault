@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { BrowserWindow } from 'electron';
-import { addFile, updateFileStatus, getAllAccounts, updateAccountUsage, addChunk } from '../db/queries';
-import { getDriveClient } from '../google/auth';
+import { addFile, updateFileStatus, getAllAccounts, updateAccountUsage, addChunk, updateAccountRootFolder } from '../db/queries';
+import { getDriveClient, findOrCreateFolder } from '../google/auth';
 import { CHUNK_SIZE } from '../../shared/constants';
 
 export async function uploadFile(userId: number, mainWindow: BrowserWindow, filePath: string, fileName: string, parentFolderId: number | null = null) {
@@ -114,17 +114,11 @@ export async function uploadFile(userId: number, mainWindow: BrowserWindow, file
       } catch (err: any) {
         if (err.code === 404 && targetAccount.root_folder_id) {
           console.warn('[Upload] 404 on upload. Root folder missing. Re-creating LizVault_Data...');
-          const folder = await drive.files.create({
-            requestBody: {
-              name: 'LizVault_Data',
-              mimeType: 'application/vnd.google-apps.folder'
-            },
-            fields: 'id'
-          });
-          const newRootId = folder.data.id!;
-          
-          const { getDb } = require('../db/schema');
-          getDb().prepare('UPDATE accounts SET root_folder_id = ? WHERE id = ? AND user_id = ?').run(newRootId, targetAccount.id, userId);
+          // Reuse an existing storage folder if one was recreated elsewhere,
+          // otherwise create a fresh one (legacy name accepted).
+          const { id: newRootId } = await findOrCreateFolder(drive, 'LizVault_Data', 'LizVault');
+
+          updateAccountRootFolder(targetAccount.id, userId, newRootId);
           targetAccount.root_folder_id = newRootId;
 
           // Re-create stream for retry
@@ -154,10 +148,11 @@ export async function uploadFile(userId: number, mainWindow: BrowserWindow, file
         }
       }
 
-      // Save chunk to DB
+      // Save chunk to the manifest (referenced by account email so the
+      // manifest stays portable across devices).
       addChunk({
         file_id: fileId,
-        account_id: targetAccount.id,
+        account_email: targetAccount.email,
         drive_file_id: driveFileId,
         sequence: chunkIndex,
         size_bytes: chunkSize,

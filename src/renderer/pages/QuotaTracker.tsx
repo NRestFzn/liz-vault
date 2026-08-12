@@ -2,12 +2,13 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AccountRow } from '../../shared/types';
 import { OAuthWaitingModal } from '../components/OAuthWaitingModal';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
 
 const { ipcRenderer } = window.require('electron');
 
 export const QuotaTracker: React.FC = () => {
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const { toastError, toastInfo } = useToast();
   // Auto-refresh preference now lives in Settings (app_state). Loaded on mount
   // so the 30s poll and the on-load token checks respect the saved value.
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -16,7 +17,6 @@ export const QuotaTracker: React.FC = () => {
   const [removeTarget, setRemoveTarget] = useState<number | null>(null);
   const [testingIds, setTestingIds] = useState<number[]>([]);
   const [okFlash, setOkFlash] = useState<Record<number, number>>({});
-  const [errorFlash, setErrorFlash] = useState<Record<number, string>>({});
   const flashTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
 
   // Clean up any pending "Token OK" flash timers on unmount.
@@ -54,17 +54,8 @@ export const QuotaTracker: React.FC = () => {
       } else if (res.expired) {
         setAccounts(prev => prev.map(a => (a.id === id ? { ...a, token_ok: 0 } : a)));
       } else {
-        // Transient — show the real reason briefly, keep current health.
-        setErrorFlash(prev => ({ ...prev, [id]: res.error || 'Token check failed.' }));
-        if (flashTimers.current[id]) clearTimeout(flashTimers.current[id]);
-        flashTimers.current[id] = setTimeout(() => {
-          setErrorFlash(prev => {
-            const next = { ...prev };
-            delete next[id];
-            return next;
-          });
-          delete flashTimers.current[id];
-        }, 3500);
+        // Transient — surface the real reason as a toast, keep current health.
+        toastError(res.error || 'Token check failed.');
       }
     } catch {
       // IPC failure — nothing to show; the finally below resets the spinner.
@@ -159,7 +150,6 @@ export const QuotaTracker: React.FC = () => {
   }, [autoRefresh, settingsLoaded]);
 
   const handleConnectDrive = async () => {
-    setError(null);
     setConnecting(true);
     try {
       const res = await ipcRenderer.invoke('account:add');
@@ -167,7 +157,17 @@ export const QuotaTracker: React.FC = () => {
       // which should never surface as an error (and must not linger after a
       // successful login either).
       if (res.cancelled) return;
-      if (res.error) setError(res.error);
+      if (res.error) {
+        toastError(res.error);
+      } else if (res.folderCreated) {
+        // A new storage folder was created on the connected account's Drive
+        // (chunks live there — the manifest stays on the main login account).
+        toastInfo(
+          res.account
+            ? `LizVault created a “LizVault_Data” storage folder in ${res.account.email}'s Drive for your files.`
+            : 'LizVault created its storage folder in this account\'s Drive.'
+        );
+      }
     } finally {
       setConnecting(false);
     }
@@ -182,7 +182,6 @@ export const QuotaTracker: React.FC = () => {
       await ipcRenderer.invoke('oauth:cancel');
     } finally {
       setConnecting(false);
-      setError(null);
     }
   };
 
@@ -191,9 +190,15 @@ export const QuotaTracker: React.FC = () => {
   const handleConfirmRemove = async () => {
     if (removeTarget === null) return;
     try {
-      await ipcRenderer.invoke('account:remove', { accountId: removeTarget });
-      setAccounts(prev => prev.filter(a => a.id !== removeTarget));
-      if (flashTimers.current[removeTarget]) clearTimeout(flashTimers.current[removeTarget]);
+      const res = await ipcRenderer.invoke('account:remove', { accountId: removeTarget });
+      if (res?.error) {
+        toastError(res.error);
+      } else {
+        setAccounts(prev => prev.filter(a => a.id !== removeTarget));
+        if (flashTimers.current[removeTarget]) clearTimeout(flashTimers.current[removeTarget]);
+      }
+    } catch (e: any) {
+      toastError(String(e));
     } finally {
       setRemoveTarget(null);
     }
@@ -210,7 +215,6 @@ export const QuotaTracker: React.FC = () => {
           <h2 className="text-[20px] font-bold">Quota Tracker</h2>
         </div>
         <div className="flex flex-col items-end gap-2">
-          {error && <div className="text-[12px] text-video">{error}</div>}
           <div className="flex flex-wrap items-center justify-end gap-2">
           <button className="btn-outline px-3.5 py-1.5 text-[12px]" onClick={loadAndTest}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
@@ -251,7 +255,6 @@ export const QuotaTracker: React.FC = () => {
               expired={expired}
               testing={testingIds.includes(acc.id)}
               okFlash={!!okFlash[acc.id]}
-              errorText={errorFlash[acc.id] || null}
               onTest={() => testAccount(acc.id)}
               onRelogin={handleConnectDrive}
               onRemove={() => handleRemoveAccount(acc.id)}
@@ -303,9 +306,9 @@ const StatCard = ({ title, value }: { title: string; value: string }) => (
   </div>
 );
 
-const AccountCard = ({ email, used, total, percent, color, expired, testing, okFlash, errorText, onTest, onRelogin, onRemove }: {
+const AccountCard = ({ email, used, total, percent, color, expired, testing, okFlash, onTest, onRelogin, onRemove }: {
   email: string; used: number; total: number; percent: number; color: string;
-  expired: boolean; testing: boolean; okFlash: boolean; errorText: string | null;
+  expired: boolean; testing: boolean; okFlash: boolean;
   onTest: () => void; onRelogin: () => void; onRemove: () => void;
 }) => (
   <div className={`rounded-[10px] border bg-panel p-[18px] transition-shadow duration-200 hover:shadow-[0_2px_8px_rgba(0,0,0,0.04)] ${expired ? 'border-red-200' : 'border-line'}`}>
@@ -377,11 +380,6 @@ const AccountCard = ({ email, used, total, percent, color, expired, testing, okF
           <span>{used.toFixed(2)} GB / {total.toFixed(2)} GB</span>
           <span>Available {(total - used).toFixed(2)} GB</span>
         </div>
-        {errorText && (
-          <div className="mt-2.5 rounded-md bg-red-50 px-2.5 py-1.5 text-[11px] leading-snug text-video">
-            {errorText}
-          </div>
-        )}
       </>
     )}
   </div>

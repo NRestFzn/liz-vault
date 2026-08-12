@@ -1,6 +1,6 @@
 import fs from 'fs';
 import { BrowserWindow } from 'electron';
-import { getFile, getChunksForFile, getAccount, updateFileStatus } from '../db/queries';
+import { getFile, getChunksForFile, getAccountByEmail, updateFileStatus } from '../db/queries';
 import { getDriveClient } from '../google/auth';
 
 export async function downloadFile(userId: number, mainWindow: BrowserWindow, fileId: number, savePath: string) {
@@ -24,9 +24,9 @@ export async function downloadFile(userId: number, mainWindow: BrowserWindow, fi
   try {
     let chunkIndex = 0;
     for (const chunk of chunks) {
-      const account = getAccount(chunk.account_id, userId);
+      const account = getAccountByEmail(chunk.account_email);
       if (!account) {
-        throw new Error(`Account ${chunk.account_id} not found for chunk`);
+        throw new Error(`Drive account ${chunk.account_email} not connected — re-connect it to download this file.`);
       }
 
       const drive = getDriveClient(account.refresh_token);
