@@ -1,7 +1,9 @@
 import type React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { PROVIDER_NAMES } from '../../shared/types';
 import type { AccountProvider, AccountRow } from '../../shared/types';
 import { OAuthWaitingModal } from '../components/OAuthWaitingModal';
+import { KoofrConnectModal } from '../components/KoofrConnectModal';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useToast } from '../components/Toast';
 import { AnimatePresence } from 'motion/react';
@@ -13,7 +15,8 @@ export const QuotaTracker: React.FC = () => {
   const { toastError, toastInfo } = useToast();
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
-  const [connecting, setConnecting] = useState(false);
+  const [connectingProvider, setConnectingProvider] = useState<AccountProvider | null>(null);
+  const [koofrModalOpen, setKoofrModalOpen] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<number | null>(null);
   const [testingIds, setTestingIds] = useState<number[]>([]);
   const [okFlash, setOkFlash] = useState<Record<number, number>>({});
@@ -99,7 +102,7 @@ export const QuotaTracker: React.FC = () => {
 
     const onAccountAdded = (_event: unknown, data: { account: AccountRow }) => {
       setAccounts(prev => {
-        const idx = prev.findIndex(a => a.email === data.account.email);
+        const idx = prev.findIndex(a => a.email === data.account.email && a.provider === data.account.provider);
         if (idx >= 0) {
           const next = [...prev];
           next[idx] = data.account;
@@ -125,22 +128,46 @@ export const QuotaTracker: React.FC = () => {
     return () => clearInterval(interval);
   }, [autoRefresh, settingsLoaded, loadAccounts]);
 
-  const handleConnectDrive = async () => {
-    setConnecting(true);
+  const handleConnectProvider = async (provider: AccountProvider) => {
+    if (provider === 'koofr') {
+      setKoofrModalOpen(true);
+      return;
+    }
+    setConnectingProvider(provider);
     try {
-      const res = await ipcRenderer.invoke('account:add');
+      const channel = provider === 'dropbox' ? 'account:connect-dropbox' : 'account:add';
+      const res = await ipcRenderer.invoke(channel);
       if (res.cancelled) return;
       if (res.error) {
         toastError(res.error);
       } else if (res.folderCreated) {
         toastInfo(
           res.account
-            ? `LizVault created a “LizVault_Data” storage folder in ${res.account.email}'s Drive for your files.`
-            : 'LizVault created its storage folder in this account\'s Drive.'
+            ? `LizVault created a “LizVault” storage folder in ${res.account.email}'s ${providerLabel(provider)} for your files.`
+            : 'LizVault created its storage folder in this account.'
         );
       }
     } finally {
-      setConnecting(false);
+      setConnectingProvider(null);
+    }
+  };
+
+  const handleKoofrConnect = async (email: string, password: string) => {
+    setKoofrModalOpen(false);
+    setConnectingProvider('koofr');
+    try {
+      const res = await ipcRenderer.invoke('account:connect-koofr', { email, password });
+      if (res.error) {
+        toastError(res.error);
+      } else if (res.folderCreated) {
+        toastInfo(
+          res.account
+            ? `LizVault created a “LizVault” storage folder in ${res.account.email}'s Koofr for your files.`
+            : 'LizVault created its storage folder in this account.'
+        );
+      }
+    } finally {
+      setConnectingProvider(null);
     }
   };
 
@@ -148,7 +175,7 @@ export const QuotaTracker: React.FC = () => {
     try {
       await ipcRenderer.invoke('oauth:cancel');
     } finally {
-      setConnecting(false);
+      setConnectingProvider(null);
     }
   };
 
@@ -180,18 +207,25 @@ export const QuotaTracker: React.FC = () => {
         <div className="min-w-0">
           <h2 className="text-[20px] font-bold">Quota Tracker</h2>
         </div>
-        <div className="flex flex-col items-end gap-2">
-          <div className="flex flex-wrap items-center justify-end gap-2">
-          <button type="button" className="btn-outline px-3.5 py-1.5 text-[12px]" onClick={loadAndTest}>
-            <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-            Refresh
-          </button>
-          <button type="button" className="btn-primary" onClick={handleConnectDrive}>
-            <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Connect Drive
-          </button>
-          </div>
-        </div>
+        <button type="button" className="btn-outline px-3.5 py-1.5 text-[12px]" onClick={loadAndTest}>
+          <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          Refresh
+        </button>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" className="btn-outline px-3.5 py-1.5 text-[12px]" onClick={() => handleConnectProvider('google')}>
+          <img src={GDRIVE_LOGO} alt="" draggable={false} className="h-3 w-auto" />
+          Connect Drive
+        </button>
+        <button type="button" className="btn-outline px-3.5 py-1.5 text-[12px]" onClick={() => handleConnectProvider('dropbox')}>
+          <img src={DROPBOX_LOGO} alt="" draggable={false} className="h-3 w-auto" />
+          Connect Dropbox
+        </button>
+        <button type="button" className="btn-outline px-3.5 py-1.5 text-[12px]" onClick={() => handleConnectProvider('koofr')}>
+          <img src={KOOFR_LOGO} alt="" draggable={false} className="h-3 w-auto" />
+          Connect Koofr
+        </button>
       </div>
 
       <div className="grid grid-cols-4 gap-3.5">
@@ -221,7 +255,7 @@ export const QuotaTracker: React.FC = () => {
               testing={testingIds.includes(acc.id)}
               okFlash={!!okFlash[acc.id]}
               onTest={() => testAccount(acc.id)}
-              onRelogin={handleConnectDrive}
+              onRelogin={() => handleConnectProvider(acc.provider)}
               onRemove={() => handleRemoveAccount(acc.id)}
             />
           );
@@ -234,10 +268,19 @@ export const QuotaTracker: React.FC = () => {
       </div>
 
       <AnimatePresence>
-        {connecting && (
+        {connectingProvider && connectingProvider !== 'koofr' && (
           <OAuthWaitingModal
-            title="Connect Google Drive"
+            title={providerLabel(connectingProvider)}
             onCancel={handleCancelConnect}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {koofrModalOpen && (
+          <KoofrConnectModal
+            onCancel={() => setKoofrModalOpen(false)}
+            onConnect={handleKoofrConnect}
           />
         )}
       </AnimatePresence>
@@ -266,26 +309,18 @@ function formatGB(bytes: number): string {
   return `${(bytes / (1024 ** 3)).toFixed(2)} GB`;
 }
 
-const PROVIDER_META: Record<AccountProvider, { name: string; logo: React.ReactNode }> = {
-  google: {
-    name: 'Google Drive',
-    logo: (
-      <svg aria-hidden="true" width="15" height="13" viewBox="0 0 87.3 78">
-        <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3L27.5 52h.07l9.6-16.65L22.75 14.7l-5.75 9.95-10.4 18a19.9 19.9 0 0 0 0 24.2Z" fill="#0066da"/>
-        <path d="M73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.7-13.35a19.9 19.9 0 0 0 0-24.2l-13.05-22.6A10.2 10.2 0 0 0 64.9 6.4H34.45a10.2 10.2 0 0 0-8.4 4.45l-3.3 5.85 9.9 17.15L51.6 52h8.3l13.65.05Z" fill="#00ac47"/>
-        <path d="M34.45 6.4 27.05 6.4a10.2 10.2 0 0 0-8.4 4.45l-8.4 14.55L22.75 14.7l11.7 20.3h5.6l9.6-16.65L43.7 6.4h-9.25Z" fill="#ea4335"/>
-        <path d="M30.15 52 27.5 52l-14.2 24.8c1.45.8 3.05 1.2 4.7 1.2h40.9a10.2 10.2 0 0 0 8.4-4.45l3.85-6.65-18.4.05h-13.6Z" fill="#00832d"/>
-      </svg>
-    ),
-  },
-  onedrive: {
-    name: 'OneDrive',
-    logo: (
-      <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24">
-        <path fill="#0078d4" d="M21.446 14.86a3.33 3.33 0 0 0-.063-.024 4.118 4.118 0 0 0 .012-1.648 4.205 4.205 0 0 0-8.06-.865 3.75 3.75 0 0 0-.366.018 3.645 3.645 0 0 0-3.45 2.62 2.784 2.784 0 0 0-.114.003 3.018 3.018 0 0 0 .074 6.03h11.484a3.52 3.52 0 0 0 .483-6.975zM8.438 11.09a5.186 5.186 0 0 1 5.108-4.32c.167 0 .332.01.494.026a4.603 4.603 0 0 1 4.14-2.66c.18 0 .356.012.53.032a5.947 5.947 0 0 0-10.272 6.922zM6.214 6.48A3.343 3.343 0 0 1 8.74 3.587c.122 0 .245.008.364.02a2.966 2.966 0 0 1 2.656-1.71c.113 0 .228.008.34.02a3.833 3.833 0 0 0-3.886 4.563z"/>
-      </svg>
-    ),
-  },
+const GDRIVE_LOGO = new URL('../../assets/icons/gdrive-logo.svg', window.location.href).href;
+const DROPBOX_LOGO = new URL('../../assets/icons/dropbox-logo.svg', window.location.href).href;
+const KOOFR_LOGO = new URL('../../assets/icons/koofr-logo.png', window.location.href).href;
+
+function providerLabel(provider: AccountProvider): string {
+  return PROVIDER_NAMES[provider];
+}
+
+const PROVIDER_META: Record<AccountProvider, { name: string; logo: string }> = {
+  google: { name: PROVIDER_NAMES.google, logo: GDRIVE_LOGO },
+  dropbox: { name: PROVIDER_NAMES.dropbox, logo: DROPBOX_LOGO },
+  koofr: { name: PROVIDER_NAMES.koofr, logo: KOOFR_LOGO },
 };
 
 const StatCard = ({ title, value }: { title: string; value: string }) => (
@@ -306,7 +341,7 @@ const AccountCard = ({ provider, email, used, total, percent, color, expired, te
     <div className="mb-3.5 flex items-start justify-between gap-2">
       <div className="flex min-w-0 items-center gap-2">
         <div className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md border ${expired ? 'border-red-200 bg-red-50' : 'border-line bg-white'}`}>
-          {meta.logo}
+          <img src={meta.logo} alt="" draggable={false} className="h-3.5 w-auto" />
         </div>          <div className="min-w-0">
             <div className="text-[13px] font-semibold leading-tight">{meta.name}</div>
             <div className="truncate text-[11px] text-muted">{email}</div>
@@ -317,7 +352,7 @@ const AccountCard = ({ provider, email, used, total, percent, color, expired, te
           <button type="button"
             className="inline-flex h-[26px] items-center gap-1 rounded-md bg-red-500 px-2.5 text-[11px] font-medium text-white transition-colors duration-150 hover:bg-red-600"
             onClick={onRelogin}
-            title="Re-login to this Google account"
+            title={`Re-login to this ${meta.name} account`}
           >
             <svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
             Re-login

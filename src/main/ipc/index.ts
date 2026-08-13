@@ -7,9 +7,14 @@ import {
   createFolder, getFilesInFolder, getFolderItemCounts, getFolderPath, toggleStarred, getStarredFiles, getStorageStats,
   renameFile, findDuplicateName, getUniqueName, getUser, getAppState, setAppState, 
   ensureManifestLoaded, invalidateManifestLoaded, resetVaultStore, getActiveUserId, setActiveUserId,
-  getGoogleCredentials, setGoogleCredentials, getOneDriveCredentials, setOneDriveCredentials
+  getGoogleCredentials, setGoogleCredentials,
+  getDropboxCredentials, setDropboxCredentials
 } from '../db/queries';
-import { initiateOAuthFlow, initiateLoginFlow, OAuthCancelledError, abortActiveOAuthFlow, testAccountToken } from '../google/auth';
+import { initiateOAuthFlow, initiateLoginFlow } from '../google/auth';
+import { initiateDropboxOAuthFlow } from '../dropbox/auth';
+import { connectKoofrAccount } from '../koofr/auth';
+import { OAuthCancelledError, abortActiveOAuthFlow } from '../oauth/loopback';
+import { testAccountToken } from '../vault/storage';
 import type { 
   IpcAccountRemoveRequest, IpcAccountTestResponse, IpcFileDeleteRequest, IpcAccountRemoveResponse,
   IpcFileDeleteResponse, IpcFilesDeleteManyRequest, IpcFilesDeleteManyResponse,
@@ -22,8 +27,10 @@ import type {
   IpcFilesSearchAllRequest, IpcFilesSearchAllResponse,
   IpcFileRenameRequest, IpcFileRenameResponse,
   IpcSettingsGetResponse, IpcSettingsSetRequest, IpcSettingsSetResponse,
-  IpcCredentialsGetRequest, IpcCredentialsGetResponse, IpcCredentialsSetRequest, IpcCredentialsSetResponse
+  IpcCredentialsGetRequest, IpcCredentialsGetResponse, IpcCredentialsSetRequest, IpcCredentialsSetResponse,
+  IpcAccountAddResponse
 } from '../../shared/types';
+import type { AccountRow } from '../../shared/types';
 import { uploadFile } from '../vault/upload';
 import { downloadFile } from '../vault/download';
 import { deleteFileChunks } from '../vault/delete';
@@ -42,10 +49,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
     return { success: true };
   });
 
-  ipcMain.handle('account:add', async () => {
+  const connectAccount = async (flow: () => Promise<{ account: AccountRow; folderCreated: boolean }>): Promise<IpcAccountAddResponse> => {
     try {
-      const userId = requireUserId();
-      const { account, folderCreated } = await initiateOAuthFlow(userId);
+      const { account, folderCreated } = await flow();
       invalidateManifestLoaded();
       await ensureManifestLoaded();
       mainWindow.webContents.send('account:added', { account });
@@ -54,7 +60,19 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
       if (e instanceof OAuthCancelledError) return { cancelled: true };
       return { error: errorMessage(e) };
     }
-  });
+  };
+
+  ipcMain.handle('account:add', () => connectAccount(async () => {
+    return initiateOAuthFlow(requireUserId());
+  }));
+
+  ipcMain.handle('account:connect-dropbox', () => connectAccount(async () => {
+    return initiateDropboxOAuthFlow(requireUserId());
+  }));
+
+  ipcMain.handle('account:connect-koofr', (_event: IpcMainInvokeEvent, payload: { email: string; password: string }) => connectAccount(async () => {
+    return connectKoofrAccount(requireUserId(), payload.email, payload.password);
+  }));
 
   ipcMain.handle('account:test', async (_event: IpcMainInvokeEvent, payload: { accountId: number }): Promise<IpcAccountTestResponse> => {
     try {
@@ -332,17 +350,15 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
 
 
   ipcMain.handle('credentials:get', async (_event: IpcMainInvokeEvent, payload: IpcCredentialsGetRequest): Promise<IpcCredentialsGetResponse> => {
-    const provider = payload?.provider ?? 'google';
-    return provider === 'onedrive' ? getOneDriveCredentials() : getGoogleCredentials();
+    return (payload?.provider ?? 'google') === 'dropbox' ? getDropboxCredentials() : getGoogleCredentials();
   });
 
   ipcMain.handle('credentials:set', async (_event: IpcMainInvokeEvent, payload: IpcCredentialsSetRequest): Promise<IpcCredentialsSetResponse> => {
     try {
       const clientId = (payload.clientId || '').trim();
       const clientSecret = (payload.clientSecret || '').trim();
-      const provider = payload.provider ?? 'google';
-      if (provider === 'onedrive') {
-        setOneDriveCredentials(clientId, clientSecret);
+      if ((payload.provider ?? 'google') === 'dropbox') {
+        setDropboxCredentials(clientId, clientSecret);
       } else {
         setGoogleCredentials(clientId, clientSecret);
       }

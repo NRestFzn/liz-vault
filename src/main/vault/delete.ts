@@ -1,5 +1,6 @@
 import { getChunksForFile, getAccountByEmail, removeFile, getChildIds, getFile, updateAccountUsage } from '../db/queries';
-import { getDriveClient } from '../google/auth';
+import { deleteChunkFile } from './storage';
+import { errorCode } from '../errors';
 
 function collectDescendantIds(userId: number, folderId: number): number[] {
   const ids: number[] = [folderId];
@@ -26,12 +27,10 @@ export async function deleteFileChunks(userId: number, fileId: number): Promise<
 
     for (const chunk of chunks) {
       try {
-        const account = getAccountByEmail(chunk.account_email);
+        const account = getAccountByEmail(chunk.account_email, chunk.account_provider);
         if (account) {
-          const drive = getDriveClient(account.refresh_token);
-
-          await drive.files.delete({ fileId: chunk.drive_file_id }).catch(err => {
-            if (err.code !== 404) {
+          await deleteChunkFile(account, chunk.drive_file_id).catch(err => {
+            if (errorCode(err) !== 404) {
               console.error(`Failed to delete chunk ${chunk.id} from drive:`, err);
             }
           });

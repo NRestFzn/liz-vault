@@ -1,5 +1,5 @@
 import { getFile, getChunksForFile, getAccountByEmail } from '../db/queries';
-import { getDriveClient } from '../google/auth';
+import { downloadChunkStream } from './storage';
 import { isBrowserDecodableImage, getImageMime } from '../../shared/fileCategory';
 
 
@@ -43,16 +43,11 @@ async function fetchThumbnail(userId: number, fileId: number): Promise<string | 
   const firstChunk = chunks.find(c => c.sequence === 0) ?? chunks[0];
   if (!firstChunk) return null;
 
-  const account = getAccountByEmail(firstChunk.account_email);
+  const account = getAccountByEmail(firstChunk.account_email, firstChunk.account_provider);
   if (!account) return null;
 
-  const drive = getDriveClient(account.refresh_token);
-  const res = await drive.files.get(
-    { fileId: firstChunk.drive_file_id, alt: 'media' },
-    { responseType: 'stream' }
-  );
-
-  const buffer = await streamToBuffer(res.data);
+  const stream = await downloadChunkStream(account, firstChunk.drive_file_id);
+  const buffer = await streamToBuffer(stream);
   const dataUrl = `data:${mime};base64,${buffer.toString('base64')}`;
 
   if (cache.size >= MAX_CACHE_ENTRIES) cache.clear();

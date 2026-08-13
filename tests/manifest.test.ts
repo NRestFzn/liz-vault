@@ -108,8 +108,8 @@ test('removeFile cascades through nested folders and drops their chunks', () => 
   const _fInA = file({ name: 'mid.txt', parent_folder_id: a.id });
   const fRoot = file({ name: 'keep.txt' });
 
-  addChunk({ file_id: fInB.id, account_email: 'x@y.com', drive_file_id: 'd1', sequence: 0, size_bytes: 10, status: 'uploaded' });
-  addChunk({ file_id: fRoot.id, account_email: 'x@y.com', drive_file_id: 'd2', sequence: 0, size_bytes: 10, status: 'uploaded' });
+  addChunk({ file_id: fInB.id, account_email: 'x@y.com', account_provider: 'google', drive_file_id: 'd1', sequence: 0, size_bytes: 10, status: 'uploaded' });
+  addChunk({ file_id: fRoot.id, account_email: 'x@y.com', account_provider: 'google', drive_file_id: 'd2', sequence: 0, size_bytes: 10, status: 'uploaded' });
 
   removeFile(a.id, USER);
 
@@ -165,9 +165,9 @@ test('getFolderPath walks root → leaf', () => {
 
 test('chunk bookkeeping: sorted by sequence, filtered by account, status updates', () => {
   const f = file({ name: 'big.bin' });
-  addChunk({ file_id: f.id, account_email: 'a@x.com', drive_file_id: 'da', sequence: 2, size_bytes: 10, status: 'uploaded' });
-  const c1 = addChunk({ file_id: f.id, account_email: 'a@x.com', drive_file_id: 'db', sequence: 0, size_bytes: 10, status: 'uploaded' });
-  addChunk({ file_id: f.id, account_email: 'b@x.com', drive_file_id: 'dc', sequence: 1, size_bytes: 10, status: 'uploaded' });
+  addChunk({ file_id: f.id, account_email: 'a@x.com', account_provider: 'google', drive_file_id: 'da', sequence: 2, size_bytes: 10, status: 'uploaded' });
+  const c1 = addChunk({ file_id: f.id, account_email: 'a@x.com', account_provider: 'google', drive_file_id: 'db', sequence: 0, size_bytes: 10, status: 'uploaded' });
+  addChunk({ file_id: f.id, account_email: 'b@x.com', account_provider: 'google', drive_file_id: 'dc', sequence: 1, size_bytes: 10, status: 'uploaded' });
 
   assert.deepStrictEqual(getChunksForFile(f.id).map(c => c.sequence), [0, 1, 2]);
   assert.strictEqual(getChunksForAccount('a@x.com').length, 2);

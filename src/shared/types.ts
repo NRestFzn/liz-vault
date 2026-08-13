@@ -1,4 +1,10 @@
-export type AccountProvider = 'google' | 'onedrive';
+export type AccountProvider = 'google' | 'dropbox' | 'koofr';
+
+export const PROVIDER_NAMES: Record<AccountProvider, string> = {
+  google: 'Google Drive',
+  dropbox: 'Dropbox',
+  koofr: 'Koofr',
+};
 
 export interface AccountRow {
   id: number;
@@ -63,6 +69,7 @@ export interface ChunkRow {
   id: number;
   file_id: number;
   account_email: string;
+  account_provider: AccountProvider;
   drive_file_id: string;
   sequence: number;
   size_bytes: number;

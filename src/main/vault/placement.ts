@@ -24,7 +24,7 @@ export function availableBytes(account: AccountRow): number | null {
  */
 export function planChunks(accounts: AccountRow[], totalBytes: number): ChunkPlanEntry[] {
   if (accounts.length === 0) {
-    throw new Error('No Google Drive accounts linked.');
+    throw new Error('No storage accounts linked.');
   }
 
   const plan: ChunkPlanEntry[] = [];

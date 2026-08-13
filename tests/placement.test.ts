@@ -70,7 +70,44 @@ test('throws when no account has space', () => {
 });
 
 test('throws when no accounts linked', () => {
-  assert.throws(() => planChunks([], 1), /No Google Drive accounts linked/);
+  assert.throws(() => planChunks([], 1), /No storage accounts linked/);
+});
+
+test('whole file goes to dropbox when google is full', () => {
+  const google = acct('g@gmail.com', 15 * GB, 15 * GB);
+  const dropbox = { ...acct('me@dropbox.com', 2 * GB, 0), provider: 'dropbox' as const };
+  const plan = planChunks([google, dropbox], 2 * GB);
+  assert.strictEqual(plan.length, 1);
+  assert.strictEqual(plan[0].account.provider, 'dropbox');
+  assert.strictEqual(plan[0].size, 2 * GB);
+});
+
+test('dropbox absorbs spill after google fills (connection order)', () => {
+  const google = acct('g@gmail.com', 15 * GB, 14 * GB);
+  const dropbox = { ...acct('me@dropbox.com', 2 * GB, 0), provider: 'dropbox' as const };
+  const plan = planChunks([google, dropbox], 2 * GB);
+  assert.deepStrictEqual(
+    plan.map(c => [c.account.email, c.account.provider, c.size]),
+    [['g@gmail.com', 'google', 1 * GB], ['me@dropbox.com', 'dropbox', 1 * GB]]
+  );
+});
+
+test('koofr only fills when earlier accounts run out (connection order)', () => {
+  const google = acct('g@gmail.com', 15 * GB, 14 * GB);
+  const dropbox = { ...acct('me@dropbox.com', 2 * GB, 0), provider: 'dropbox' as const };
+  const koofr = { ...acct('me@koofr.eu', 10 * GB, 0), provider: 'koofr' as const };
+  const plan = planChunks([google, dropbox, koofr], 3 * GB);
+  assert.deepStrictEqual(
+    plan.map(c => [c.account.provider, c.size]),
+    [['google', 1 * GB], ['dropbox', 2 * GB]]
+  );
+  assert.strictEqual(plan.some(c => c.account.provider === 'koofr'), false);
+
+  const plan2 = planChunks([google, dropbox, koofr], 5 * GB);
+  assert.deepStrictEqual(
+    plan2.map(c => [c.account.provider, c.size]),
+    [['google', 1 * GB], ['dropbox', 2 * GB], ['koofr', 2 * GB]]
+  );
 });
 
 test('zero-byte file → one empty chunk in first usable account', () => {

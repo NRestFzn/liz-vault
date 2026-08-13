@@ -1,9 +1,8 @@
 import { google } from 'googleapis';
 import type { drive_v3 } from 'googleapis';
-import { shell } from 'electron';
 import { errorMessage } from '../errors';
-import http from 'node:http';
-import { addAccount, addUser, getAccount, getGoogleCredentials, seedManifestForUser } from '../db/queries';
+import { runLoopbackOAuthFlow } from '../oauth/loopback';
+import { addAccount, addUser, getGoogleCredentials, seedManifestForUser } from '../db/queries';
 import type { AccountRow, UserRow } from '../../shared/types';
 
 const VAULT_FOLDER_NAME = 'LizVault';
@@ -28,44 +27,6 @@ function assertCredentialsConfigured(): void {
   }
 }
 
-const LOOPBACK_HOST = '127.0.0.1';
-
-interface ActiveOAuthFlow {
-  server: http.Server;
-  fail: (err: Error) => void;
-}
-let activeOAuthFlow: ActiveOAuthFlow | null = null;
-
-export class OAuthCancelledError extends Error {
-  constructor() {
-    super('Previous login attempt was cancelled by a newer attempt.');
-    this.name = 'OAuthCancelledError';
-  }
-}
-
-export function abortActiveOAuthFlow(): void {
-  if (activeOAuthFlow) {
-    try { activeOAuthFlow.server.close(); } catch { }
-    try { activeOAuthFlow.fail(new OAuthCancelledError()); } catch { }
-    activeOAuthFlow = null;
-  }
-}
-
-function resolveRedirectUri(server: http.Server): string {
-  const addr = server.address();
-  const port = addr && typeof addr === 'object' ? addr.port : 0;
-  return `http://${LOOPBACK_HOST}:${port}/oauth/callback`;
-}
-const CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
-
-const SUCCESS_HTML =
-  '<html><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh">' +
-  '<h2>Authentication complete! You can close this window.</h2></body></html>';
-
-const ERROR_HTML =
-  '<html><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh">' +
-  '<h2>Authentication failed. Please close this window and try again.</h2></body></html>';
-
 export function createOAuthClient(redirectUri: string) {
   assertCredentialsConfigured();
   const { clientId, clientSecret } = getOAuthCredentials();
@@ -84,92 +45,15 @@ export interface LoginFlowResult {
 
 export async function initiateOAuthFlow(userId: number): Promise<OAuthFlowResult> {
   assertCredentialsConfigured();
-  return new Promise<OAuthFlowResult>((resolve, reject) => {
-    abortActiveOAuthFlow();
-    const server = http.createServer();
-    let settled = false;
-    let callbackReceived = false;
-    let timeout: NodeJS.Timeout | undefined;
-    let redirectUri = '';
-
-    const cleanup = () => {
-      if (activeOAuthFlow?.server === server) activeOAuthFlow = null;
-      server.close();
-      if (timeout) clearTimeout(timeout);
-    };
-
-    const fail = (err: Error) => {
-      if (settled || callbackReceived) return;
-      settled = true;
-      cleanup();
-      reject(err);
-    };
-    activeOAuthFlow = { server, fail };
-
-    server.on('request', async (req, res) => {
-      const reqUrl = new URL(req.url || '/', redirectUri);
-
-      const callbackPath = new URL(redirectUri).pathname;
-      if (reqUrl.pathname !== callbackPath) {
-        res.writeHead(204);
-        res.end();
-        return;
-      }
-
-      callbackReceived = true;
-      const code = reqUrl.searchParams.get('code');
-      const errParam = reqUrl.searchParams.get('error');
-
-      res.setHeader('content-type', 'text/html');
-      res.end(code ? SUCCESS_HTML : ERROR_HTML);
-
-      if (settled) return;
-      settled = true;
-      if (timeout) clearTimeout(timeout);
-
-      if (!code) {
-        cleanup();
-        reject(new Error(
-          errParam === 'access_denied'
-            ? 'You cancelled the sign-in in the browser.'
-            : 'No code found in callback URL'
-        ));
-        return;
-      }
-
-      try {
-        const result = await completeOAuth(code, redirectUri, userId);
-        cleanup();
-        resolve(result);
-      } catch (e) {
-        cleanup();
-        reject(e as Error);
-      }
+  const { code, redirectUri } = await runLoopbackOAuthFlow(async (redirectUri) => {
+    const oauth2Client = createOAuthClient(redirectUri);
+    return oauth2Client.generateAuthUrl({
+      access_type: 'offline',
+      scope: SCOPES,
+      prompt: 'consent'
     });
-
-    server.listen(0, LOOPBACK_HOST, async () => {
-      try {
-        redirectUri = resolveRedirectUri(server);
-        console.log('[OAuth] redirect URI:', redirectUri);
-        const oauth2Client = createOAuthClient(redirectUri);
-        const authUrl = oauth2Client.generateAuthUrl({
-          access_type: 'offline',
-          scope: SCOPES,
-          prompt: 'consent'
-        });
-
-        await shell.openExternal(authUrl);
-      } catch (e) {
-        fail(e as Error);
-      }
-    });
-
-    timeout = setTimeout(() => fail(new Error('OAuth login timed out. Please try again.')), CALLBACK_TIMEOUT_MS);
-
-    server.on('error', (err: NodeJS.ErrnoException) => {
-      fail(err);
-    });
-  });
+  }, 'OAuth login timed out. Please try again.');
+  return completeOAuth(code, redirectUri, userId);
 }
 
 async function completeOAuth(code: string, redirectUri: string, userId: number): Promise<OAuthFlowResult> {
@@ -242,113 +126,22 @@ export async function findOrCreateFolder(drive: drive_v3.Drive, preferredName: s
   return { id, created: true };
 }
 
-export async function testAccountToken(userId: number, accountId: number): Promise<{ ok: boolean; expired?: boolean; error?: string }> {
-  try {
-    const account = getAccount(accountId, userId);
-    if (!account) return { ok: false, expired: true, error: 'Account not found.' };
-    const drive = getDriveClient(account.refresh_token);
-    await drive.about.get({ fields: 'user' });
-    return { ok: true };
-  } catch (e) {
-    const msg = errorMessage(e);
-    if (/unauthorized_client|invalid_grant|invalid_client/i.test(msg)) {
-      return { ok: false, expired: true, error: 'Your Google login has expired or was revoked. Re-login to continue.' };
-    }
-    return { ok: false, expired: false, error: msg };
-  }
-}
-
 export async function initiateLoginFlow(): Promise<LoginFlowResult> {
   assertCredentialsConfigured();
-  return new Promise<LoginFlowResult>((resolve, reject) => {
-    abortActiveOAuthFlow();
-    const server = http.createServer();
-    let settled = false;
-    let callbackReceived = false;
-    let timeout: NodeJS.Timeout | undefined;
-    let redirectUri = '';
-
-    const cleanup = () => {
-      if (activeOAuthFlow?.server === server) activeOAuthFlow = null;
-      server.close();
-      if (timeout) clearTimeout(timeout);
-    };
-
-    const fail = (err: Error) => {
-      if (settled || callbackReceived) return;
-      settled = true;
-      cleanup();
-      reject(err);
-    };
-    activeOAuthFlow = { server, fail };
-
-    server.on('request', async (req, res) => {
-      const reqUrl = new URL(req.url || '/', redirectUri);
-      const callbackPath = new URL(redirectUri).pathname;
-      if (reqUrl.pathname !== callbackPath) {
-        res.writeHead(204);
-        res.end();
-        return;
-      }
-
-      callbackReceived = true;
-      const code = reqUrl.searchParams.get('code');
-      const errParam = reqUrl.searchParams.get('error');
-
-      res.setHeader('content-type', 'text/html');
-      res.end(code ? SUCCESS_HTML : ERROR_HTML);
-
-      if (settled) return;
-      settled = true;
-      if (timeout) clearTimeout(timeout);
-
-      if (!code) {
-        cleanup();
-        reject(new Error(
-          errParam === 'access_denied'
-            ? 'You cancelled the sign-in in the browser.'
-            : 'No code found in callback URL'
-        ));
-        return;
-      }
-
-      try {
-        const result = await completeLoginOAuth(code, redirectUri);
-        cleanup();
-        resolve(result);
-      } catch (e) {
-        cleanup();
-        reject(e as Error);
-      }
+  const { code, redirectUri } = await runLoopbackOAuthFlow(async (redirectUri) => {
+    const oauth2Client = createOAuthClient(redirectUri);
+    return oauth2Client.generateAuthUrl({
+      access_type: 'offline',
+      scope: [
+        'https://www.googleapis.com/auth/userinfo.email',
+        'https://www.googleapis.com/auth/userinfo.profile',
+        'https://www.googleapis.com/auth/drive.file',
+        'https://www.googleapis.com/auth/drive.metadata.readonly',
+      ],
+      prompt: 'consent',
     });
-
-    server.listen(0, LOOPBACK_HOST, async () => {
-      try {
-        redirectUri = resolveRedirectUri(server);
-        console.log('[Login] redirect URI:', redirectUri);
-        const oauth2Client = createOAuthClient(redirectUri);
-        const authUrl = oauth2Client.generateAuthUrl({
-          access_type: 'offline',
-          scope: [
-            'https://www.googleapis.com/auth/userinfo.email',
-            'https://www.googleapis.com/auth/userinfo.profile',
-            'https://www.googleapis.com/auth/drive.file',
-            'https://www.googleapis.com/auth/drive.metadata.readonly',
-          ],
-          prompt: 'consent',
-        });
-        await shell.openExternal(authUrl);
-      } catch (e) {
-        fail(e as Error);
-      }
-    });
-
-    timeout = setTimeout(() => fail(new Error('Login timed out. Please try again.')), CALLBACK_TIMEOUT_MS);
-
-    server.on('error', (err: NodeJS.ErrnoException) => {
-      fail(err);
-    });
-  });
+  }, 'Login timed out. Please try again.');
+  return completeLoginOAuth(code, redirectUri);
 }
 
 async function completeLoginOAuth(code: string, redirectUri: string): Promise<LoginFlowResult> {

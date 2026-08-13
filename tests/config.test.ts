@@ -9,6 +9,7 @@ import {
   getUser,
   addAccount,
   getAccount,
+  getAccountByEmail,
   getAllAccounts,
   updateAccountUsage,
   updateAccountRootFolder,
@@ -16,8 +17,8 @@ import {
   getActiveUserId,
   setGoogleCredentials,
   getGoogleCredentials,
-  setOneDriveCredentials,
-  getOneDriveCredentials,
+  setDropboxCredentials,
+  getDropboxCredentials,
   setAppState,
   getAppState,
   deleteAppState,
@@ -99,22 +100,32 @@ test('updateAccountUsage and updateAccountRootFolder mutate persisted state', ()
   assert.strictEqual(getAccount(a.id, 1)?.root_folder_id, 'f2');
 });
 
-test('onedrive credentials are stored separately from google', () => {
+test('provider credentials are stored separately from google', () => {
   initConfig(freshConfig());
-  setOneDriveCredentials('od-cid', 'od-secret');
+  setDropboxCredentials('db-key', 'db-secret');
   setGoogleCredentials('g-cid', 'g-secret');
-  assert.deepStrictEqual(getOneDriveCredentials(), { clientId: 'od-cid', clientSecret: 'od-secret' });
+  assert.deepStrictEqual(getDropboxCredentials(), { clientId: 'db-key', clientSecret: 'db-secret' });
   assert.deepStrictEqual(getGoogleCredentials(), { clientId: 'g-cid', clientSecret: 'g-secret' });
-
-  initConfig(freshConfig());
-  assert.deepStrictEqual(getOneDriveCredentials(), { clientId: '', clientSecret: '' });
-  setOneDriveCredentials('od-cid', 'od-secret');
 
   const dir = freshConfig();
   initConfig(dir);
-  setOneDriveCredentials('persisted', 'secret');
+  setDropboxCredentials('persisted-key', 'persisted-secret');
   initConfig(dir);
-  assert.deepStrictEqual(getOneDriveCredentials(), { clientId: 'persisted', clientSecret: 'secret' });
+  assert.deepStrictEqual(getDropboxCredentials(), { clientId: 'persisted-key', clientSecret: 'persisted-secret' });
+});
+
+test('dropbox and koofr accounts persist provider across reload', () => {
+  const dir = freshConfig();
+  initConfig(dir);
+  const db = addAccount({ user_id: 1, email: 'me@dropbox.com', refresh_token: 't', total_bytes: 2e9, used_bytes: 0, root_folder_id: 'f', provider: 'dropbox' });
+  const kf = addAccount({ user_id: 1, email: 'me@koofr.eu', refresh_token: 't', total_bytes: 10e9, used_bytes: 0, root_folder_id: 'mount', provider: 'koofr' });
+  assert.strictEqual(db.provider, 'dropbox');
+  assert.strictEqual(kf.provider, 'koofr');
+
+  initConfig(dir);
+  const loaded = getAllAccounts(1);
+  assert.strictEqual(loaded.find(x => x.id === db.id)?.provider, 'dropbox');
+  assert.strictEqual(loaded.find(x => x.id === kf.id)?.provider, 'koofr');
 });
 
 test('accounts default to google provider and persist provider across reload', () => {
@@ -122,13 +133,32 @@ test('accounts default to google provider and persist provider across reload', (
   initConfig(dir);
   const a = addAccount({ user_id: 1, email: 's@gmail.com', refresh_token: 't', total_bytes: 15e9, used_bytes: 0, root_folder_id: 'f' });
   assert.strictEqual(a.provider, 'google');
-  const od = addAccount({ user_id: 1, email: 'od@outlook.com', refresh_token: 't', total_bytes: 1e12, used_bytes: 0, root_folder_id: 'f', provider: 'onedrive' });
-  assert.strictEqual(od.provider, 'onedrive');
+  const db = addAccount({ user_id: 1, email: 'me@dropbox.com', refresh_token: 't', total_bytes: 2e9, used_bytes: 0, root_folder_id: 'f', provider: 'dropbox' });
+  assert.strictEqual(db.provider, 'dropbox');
 
   initConfig(dir);
   const loaded = getAllAccounts(1);
   assert.strictEqual(loaded.find(x => x.id === a.id)?.provider, 'google');
-  assert.strictEqual(loaded.find(x => x.id === od.id)?.provider, 'onedrive');
+  assert.strictEqual(loaded.find(x => x.id === db.id)?.provider, 'dropbox');
+});
+
+test('same email on different providers are distinct accounts', () => {
+  initConfig(freshConfig());
+  const g = addAccount({ user_id: 1, email: 'me@example.com', refresh_token: 'gt', total_bytes: 15e9, used_bytes: 0, root_folder_id: 'gf' });
+  const d = addAccount({ user_id: 1, email: 'me@example.com', refresh_token: 'dt', total_bytes: 2e9, used_bytes: 0, root_folder_id: 'df', provider: 'dropbox' });
+  assert.notStrictEqual(d.id, g.id);
+  assert.strictEqual(getAllAccounts(1).length, 2);
+  assert.strictEqual(getAccountByEmail('me@example.com', 'google')?.id, g.id);
+  assert.strictEqual(getAccountByEmail('me@example.com', 'dropbox')?.id, d.id);
+  assert.strictEqual(getAccountByEmail('me@example.com')?.id, g.id);
+});
+
+test('re-adding same email on same provider upserts, not duplicates', () => {
+  initConfig(freshConfig());
+  const a1 = addAccount({ user_id: 1, email: 'me@example.com', refresh_token: 't', total_bytes: 2e9, used_bytes: 0, root_folder_id: 'f', provider: 'dropbox' });
+  const a2 = addAccount({ user_id: 1, email: 'me@example.com', refresh_token: 't2', total_bytes: 2e9, used_bytes: 0, root_folder_id: 'f2', provider: 'dropbox' });
+  assert.strictEqual(a2.id, a1.id);
+  assert.strictEqual(getAllAccounts(1).length, 1);
 });
 
 test('active user, credentials and app state persist', () => {

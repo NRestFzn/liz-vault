@@ -13,8 +13,8 @@ export function nowUtc(): string {
 interface ConfigData {
   googleClientId: string;
   googleClientSecret: string;
-  onedriveClientId: string;
-  onedriveClientSecret: string;
+  dropboxClientId: string;
+  dropboxClientSecret: string;
   activeUserId: number | null;
   users: UserRow[];
   accounts: AccountRow[];
@@ -27,8 +27,8 @@ function emptyConfig(): ConfigData {
   return {
     googleClientId: '',
     googleClientSecret: '',
-    onedriveClientId: '',
-    onedriveClientSecret: '',
+    dropboxClientId: '',
+    dropboxClientSecret: '',
     activeUserId: null,
     users: [],
     accounts: [],
@@ -100,13 +100,13 @@ export function setGoogleCredentials(clientId: string, clientSecret: string): vo
   saveConfig();
 }
 
-export function getOneDriveCredentials(): { clientId: string; clientSecret: string } {
-  return { clientId: data.onedriveClientId, clientSecret: data.onedriveClientSecret };
+export function getDropboxCredentials(): { clientId: string; clientSecret: string } {
+  return { clientId: data.dropboxClientId, clientSecret: data.dropboxClientSecret };
 }
 
-export function setOneDriveCredentials(clientId: string, clientSecret: string): void {
-  data.onedriveClientId = clientId;
-  data.onedriveClientSecret = clientSecret;
+export function setDropboxCredentials(clientId: string, clientSecret: string): void {
+  data.dropboxClientId = clientId;
+  data.dropboxClientSecret = clientSecret;
   saveConfig();
 }
 
@@ -122,7 +122,7 @@ export function setActiveUserId(id: number | null): void {
 
 
 export function addUser(user: Omit<UserRow, 'id' | 'added_at' | 'manifest_key'>): UserRow {
-  if (data.accounts.some(a => a.email === user.email)) {
+  if (data.accounts.some(a => a.email === user.email && a.provider === 'google')) {
     throw new Error(`This Google account (${user.email}) is already connected as a drive storage account. Use a different account to log in.`);
   }
   const existing = data.users.find(u => u.email === user.email);
@@ -178,7 +178,7 @@ export function removeUser(id: number): void {
 
 
 export function addAccount(account: Omit<AccountRow, 'id' | 'added_at' | 'token_ok' | 'last_checked_at' | 'provider'> & { provider?: AccountProvider }): AccountRow {
-  const existing = data.accounts.find(a => a.email === account.email);
+  const existing = data.accounts.find(a => a.email === account.email && a.provider === (account.provider ?? 'google'));
   const now = new Date().toISOString();
   if (existing) {
     existing.user_id = account.user_id;
@@ -222,8 +222,8 @@ export function getAccount(id: number, userId: number): AccountRow | undefined {
   return data.accounts.find(a => a.id === id && a.user_id === userId);
 }
 
-export function getAccountByEmail(email: string): AccountRow | undefined {
-  return data.accounts.find(a => a.email === email);
+export function getAccountByEmail(email: string, provider?: AccountProvider): AccountRow | undefined {
+  return data.accounts.find(a => a.email === email && (provider === undefined || a.provider === provider));
 }
 
 export function getAllAccounts(userId: number): AccountRow[] {

@@ -100,7 +100,7 @@ function tryParseManifest(raw: string): VaultManifest | null {
 function importManifest(manifest: VaultManifest): void {
   const activeUserId = getActiveUserId();
   files = (manifest.files || []).map(f => ({ ...f, user_id: activeUserId ?? f.user_id }));
-  chunks = manifest.chunks || [];
+  chunks = (manifest.chunks || []).map(c => ({ ...c, account_provider: c.account_provider ?? 'google' }));
   nextFileId = Math.max(1, ...files.map(f => f.id), 0) + 1;
   nextChunkId = Math.max(1, ...chunks.map(c => c.id), 0) + 1;
 }
@@ -459,8 +459,8 @@ export function getChunksForFile(fileId: number): ChunkRow[] {
   return chunks.filter(c => c.file_id === fileId).sort((a, b) => a.sequence - b.sequence);
 }
 
-export function getChunksForAccount(accountEmail: string): ChunkRow[] {
-  return chunks.filter(c => c.account_email === accountEmail);
+export function getChunksForAccount(accountEmail: string, provider: ChunkRow['account_provider'] = 'google'): ChunkRow[] {
+  return chunks.filter(c => c.account_email === accountEmail && c.account_provider === provider);
 }
 
 export function updateChunkStatus(id: number, status: ChunkRow['status']): void {

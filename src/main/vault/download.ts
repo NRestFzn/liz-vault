@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import type { BrowserWindow } from 'electron';
 import { getFile, getChunksForFile, getAccountByEmail, updateFileStatus } from '../db/queries';
-import { getDriveClient } from '../google/auth';
+import { PROVIDER_NAMES } from '../../shared/types';
+import { downloadChunkStream } from './storage';
 
 export async function downloadFile(userId: number, mainWindow: BrowserWindow, fileId: number, savePath: string) {
   const fileRow = getFile(fileId, userId);
@@ -24,20 +25,15 @@ export async function downloadFile(userId: number, mainWindow: BrowserWindow, fi
   try {
     let chunkIndex = 0;
     for (const chunk of chunks) {
-      const account = getAccountByEmail(chunk.account_email);
+      const account = getAccountByEmail(chunk.account_email, chunk.account_provider);
       if (!account) {
-        throw new Error(`Drive account ${chunk.account_email} not connected — re-connect it to download this file.`);
+        throw new Error(`${PROVIDER_NAMES[chunk.account_provider]} account ${chunk.account_email} not connected — re-connect it to download this file.`);
       }
 
-      const drive = getDriveClient(account.refresh_token);
-
-      const response = await drive.files.get(
-        { fileId: chunk.drive_file_id, alt: 'media' },
-        { responseType: 'stream' }
-      );
+      const stream = await downloadChunkStream(account, chunk.drive_file_id);
 
       await new Promise<void>((resolve, reject) => {
-        response.data
+        stream
           .on('data', (dataChunk: Buffer) => {
             bytesDownloaded += dataChunk.length;
             mainWindow.webContents.send('download:progress', {

@@ -1,9 +1,10 @@
 import fs from 'node:fs';
 import type { BrowserWindow } from 'electron';
 import { addFile, updateFileStatus, getAllAccounts, updateAccountUsage, addChunk, updateAccountRootFolder, getFilesInFolder, getChunksForFile } from '../db/queries';
-import { getDriveClient, findOrCreateFolder } from '../google/auth';
+import { getDriveClient } from '../google/auth';
 import { planChunks } from './placement';
 import { deleteFileChunks } from './delete';
+import { chunkName, deleteChunkFile, ensureStorageFolder, listFolderFiles, sanitizeName, uploadChunk } from './storage';
 import { errorCode, errorMessage } from '../errors';
 
 export async function uploadFile(userId: number, mainWindow: BrowserWindow, filePath: string, fileName: string, parentFolderId: number | null = null) {
@@ -41,8 +42,6 @@ export async function uploadFile(userId: number, mainWindow: BrowserWindow, file
       const endByte = entry.endByte;
       const chunkSize = entry.size;
 
-      const drive = getDriveClient(targetAccount.refresh_token);
-
       let stream: NodeJS.ReadableStream;
       if (totalBytes === 0) {
         stream = require('node:stream').Readable.from([Buffer.alloc(0)]);
@@ -62,28 +61,15 @@ export async function uploadFile(userId: number, mainWindow: BrowserWindow, file
         });
       });
 
-      const media = {
-        mimeType: 'application/octet-stream',
-        body: stream,
-      };
+      const chunkFile = chunkName(fileName, chunkIndex, targetAccount.provider);
 
       let driveFileId: string;
       try {
-        const driveFile = await drive.files.create({
-          requestBody: {
-            name: `${fileName}.chunk${chunkIndex}`,
-            parents: targetAccount.root_folder_id ? [targetAccount.root_folder_id] : undefined
-          },
-          media: media,
-          fields: 'id'
-        });
-        const id = driveFile.data.id;
-        if (!id) throw new Error('Drive did not return an id for the uploaded chunk.');
-        driveFileId = id;
+        driveFileId = await uploadChunk(targetAccount, chunkFile, stream, chunkSize);
       } catch (err) {
         if (errorCode(err) === 404 && targetAccount.root_folder_id) {
-          console.warn('[Upload] 404 on upload. Root folder missing. Re-creating LizVault_Data...');
-          const { id: newRootId } = await findOrCreateFolder(drive, 'LizVault', 'LizVault_Data');
+          console.warn('[Upload] 404 on upload. Root folder missing. Re-creating LizVault...');
+          const { id: newRootId } = await ensureStorageFolder(targetAccount, 'LizVault', 'LizVault_Data');
 
           updateAccountRootFolder(targetAccount.id, userId, newRootId);
           targetAccount.root_folder_id = newRootId;
@@ -100,17 +86,7 @@ export async function uploadFile(userId: number, mainWindow: BrowserWindow, file
             });
           }
 
-          const retryFile = await drive.files.create({
-            requestBody: {
-              name: `${fileName}.chunk${chunkIndex}`,
-              parents: [newRootId]
-            },
-            media: { mimeType: 'application/octet-stream', body: newStream },
-            fields: 'id'
-          });
-          const id = retryFile.data.id;
-          if (!id) throw new Error('Drive did not return an id for the uploaded chunk.');
-          driveFileId = id;
+          driveFileId = await uploadChunk(targetAccount, chunkFile, newStream, chunkSize);
         } else {
           throw err;
         }
@@ -119,6 +95,7 @@ export async function uploadFile(userId: number, mainWindow: BrowserWindow, file
       addChunk({
         file_id: fileId,
         account_email: targetAccount.email,
+        account_provider: targetAccount.provider,
         drive_file_id: driveFileId,
         sequence: chunkIndex,
         size_bytes: chunkSize,
@@ -173,17 +150,28 @@ async function sweepOrphanChunks(userId: number, fileName: string, registeredIds
   for (const account of getAllAccounts(userId)) {
     if (!account.root_folder_id) continue;
     try {
-      const drive = getDriveClient(account.refresh_token);
-      const res = await drive.files.list({
-        q: `name contains '${safeName}.chunk' and '${account.root_folder_id}' in parents and trashed=false`,
-        spaces: 'drive',
-        fields: 'files(id,name)',
-      });
-      for (const f of res.data.files || []) {
-        if (!f.id) continue;
-        if (!registered.has(f.id)) {
-          await drive.files.delete({ fileId: f.id });
-          console.warn(`[Upload] Deleted orphan chunk "${f.name}" (${f.id}) from ${account.email}`);
+      if (account.provider !== 'google') {
+        const files = await listFolderFiles(account, account.root_folder_id);
+        const prefix = sanitizeName(`${fileName}.chunk`);
+        for (const f of files) {
+          if (f.name.startsWith(prefix) && !registered.has(f.id)) {
+            await deleteChunkFile(account, f.id);
+            console.warn(`[Upload] Deleted orphan chunk "${f.name}" (${f.id}) from ${account.email}`);
+          }
+        }
+      } else {
+        const drive = getDriveClient(account.refresh_token);
+        const res = await drive.files.list({
+          q: `name contains '${safeName}.chunk' and '${account.root_folder_id}' in parents and trashed=false`,
+          spaces: 'drive',
+          fields: 'files(id,name)',
+        });
+        for (const f of res.data.files || []) {
+          if (!f.id) continue;
+          if (!registered.has(f.id)) {
+            await drive.files.delete({ fileId: f.id });
+            console.warn(`[Upload] Deleted orphan chunk "${f.name}" (${f.id}) from ${account.email}`);
+          }
         }
       }
     } catch (e) {
