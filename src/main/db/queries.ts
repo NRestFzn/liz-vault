@@ -6,6 +6,8 @@ export {
   initConfig,
   getGoogleCredentials,
   setGoogleCredentials,
+  getOneDriveCredentials,
+  setOneDriveCredentials,
   getActiveUserId,
   setActiveUserId,
   addUser,

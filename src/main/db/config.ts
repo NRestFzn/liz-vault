@@ -1,7 +1,9 @@
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 import { app } from 'electron';
-import { AccountRow, UserRow } from '../../shared/types';
+import type { AccountProvider, AccountRow, UserRow } from '../../shared/types';
+import { encryptToken, decryptToken } from './crypto';
+import { generateManifestKey } from './manifestCrypto';
 
 
 export function nowUtc(): string {
@@ -11,6 +13,8 @@ export function nowUtc(): string {
 interface ConfigData {
   googleClientId: string;
   googleClientSecret: string;
+  onedriveClientId: string;
+  onedriveClientSecret: string;
   activeUserId: number | null;
   users: UserRow[];
   accounts: AccountRow[];
@@ -23,6 +27,8 @@ function emptyConfig(): ConfigData {
   return {
     googleClientId: '',
     googleClientSecret: '',
+    onedriveClientId: '',
+    onedriveClientSecret: '',
     activeUserId: null,
     users: [],
     accounts: [],
@@ -52,10 +58,14 @@ export function initConfig(overrideDir?: string): void {
     try {
       const parsed = JSON.parse(fs.readFileSync(file, 'utf-8'));
       data = { ...emptyConfig(), ...parsed };
+      data.users = (data.users || []).map(u => ({ ...u, refresh_token: decryptToken(u.refresh_token), manifest_key: u.manifest_key ? decryptToken(u.manifest_key) : null }));
+      data.accounts = (data.accounts || []).map(a => ({ ...a, provider: a.provider ?? 'google', refresh_token: decryptToken(a.refresh_token) }));
     } catch (e) {
       console.error('[Config] Failed to read config.json — starting fresh:', e);
       data = emptyConfig();
     }
+  } else {
+    data = emptyConfig();
   }
   data.nextUserId = Math.max(0, ...data.users.map(u => u.id)) + 1;
   data.nextAccountId = Math.max(0, ...data.accounts.map(a => a.id)) + 1;
@@ -67,7 +77,12 @@ function saveConfig(): void {
   const tmp = `${file}.tmp`;
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf-8');
+    const serialized = {
+      ...data,
+      users: data.users.map(u => ({ ...u, refresh_token: encryptToken(u.refresh_token), manifest_key: u.manifest_key ? encryptToken(u.manifest_key) : null })),
+      accounts: data.accounts.map(a => ({ ...a, refresh_token: encryptToken(a.refresh_token) })),
+    };
+    fs.writeFileSync(tmp, JSON.stringify(serialized, null, 2), 'utf-8');
     fs.renameSync(tmp, file);
   } catch (e) {
     console.error('[Config] Failed to write config.json:', e);
@@ -85,6 +100,16 @@ export function setGoogleCredentials(clientId: string, clientSecret: string): vo
   saveConfig();
 }
 
+export function getOneDriveCredentials(): { clientId: string; clientSecret: string } {
+  return { clientId: data.onedriveClientId, clientSecret: data.onedriveClientSecret };
+}
+
+export function setOneDriveCredentials(clientId: string, clientSecret: string): void {
+  data.onedriveClientId = clientId;
+  data.onedriveClientSecret = clientSecret;
+  saveConfig();
+}
+
 
 export function getActiveUserId(): number | null {
   return data.activeUserId;
@@ -96,7 +121,7 @@ export function setActiveUserId(id: number | null): void {
 }
 
 
-export function addUser(user: Omit<UserRow, 'id' | 'added_at'>): UserRow {
+export function addUser(user: Omit<UserRow, 'id' | 'added_at' | 'manifest_key'>): UserRow {
   if (data.accounts.some(a => a.email === user.email)) {
     throw new Error(`This Google account (${user.email}) is already connected as a drive storage account. Use a different account to log in.`);
   }
@@ -116,6 +141,7 @@ export function addUser(user: Omit<UserRow, 'id' | 'added_at'>): UserRow {
     display_name: user.display_name,
     avatar_url: user.avatar_url,
     root_folder_id: user.root_folder_id,
+    manifest_key: null,
     added_at: nowUtc(),
   };
   data.users.push(row);
@@ -134,6 +160,15 @@ export function setUserRootFolder(userId: number, rootFolderId: string | null): 
   saveConfig();
 }
 
+export function ensureUserManifestKey(userId: number): string {
+  const user = data.users.find(u => u.id === userId);
+  if (!user) throw new Error('User not found.');
+  if (user.manifest_key) return user.manifest_key;
+  user.manifest_key = generateManifestKey();
+  saveConfig();
+  return user.manifest_key;
+}
+
 export function removeUser(id: number): void {
   data.accounts = data.accounts.filter(a => a.user_id !== id);
   data.users = data.users.filter(u => u.id !== id);
@@ -142,11 +177,12 @@ export function removeUser(id: number): void {
 }
 
 
-export function addAccount(account: Omit<AccountRow, 'id' | 'added_at' | 'token_ok' | 'last_checked_at'>): AccountRow {
+export function addAccount(account: Omit<AccountRow, 'id' | 'added_at' | 'token_ok' | 'last_checked_at' | 'provider'> & { provider?: AccountProvider }): AccountRow {
   const existing = data.accounts.find(a => a.email === account.email);
   const now = new Date().toISOString();
   if (existing) {
     existing.user_id = account.user_id;
+    existing.provider = account.provider ?? existing.provider;
     existing.refresh_token = account.refresh_token;
     existing.total_bytes = account.total_bytes;
     existing.used_bytes = account.used_bytes;
@@ -160,6 +196,7 @@ export function addAccount(account: Omit<AccountRow, 'id' | 'added_at' | 'token_
     id: data.nextAccountId++,
     user_id: account.user_id,
     email: account.email,
+    provider: account.provider ?? 'google',
     refresh_token: account.refresh_token,
     total_bytes: account.total_bytes,
     used_bytes: account.used_bytes,

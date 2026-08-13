@@ -1,7 +1,10 @@
+export type AccountProvider = 'google' | 'onedrive';
+
 export interface AccountRow {
   id: number;
   user_id: number;
   email: string;
+  provider: AccountProvider;
   refresh_token: string;
   total_bytes: number | null;
   used_bytes: number | null;
@@ -18,6 +21,7 @@ export interface UserRow {
   display_name: string | null;
   avatar_url: string | null;
   root_folder_id: string | null;
+  manifest_key: string | null;
   added_at: string;
 }
 
@@ -281,12 +285,17 @@ export interface IpcSettingsSetResponse {
 }
 
 
+export interface IpcCredentialsGetRequest {
+  provider?: AccountProvider;
+}
+
 export interface IpcCredentialsGetResponse {
   clientId: string;
   clientSecret: string;
 }
 
 export interface IpcCredentialsSetRequest {
+  provider?: AccountProvider;
   clientId: string;
   clientSecret: string;
 }

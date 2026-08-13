@@ -1,7 +1,10 @@
-import { ChunkRow, FileRow, SearchResultRow, StorageCategories, UserRow } from '../../shared/types';
+import type { drive_v3 } from 'googleapis';
+import type { ChunkRow, FileRow, SearchResultRow, StorageCategories, UserRow } from '../../shared/types';
 import { getFileCategory, splitFileName } from '../../shared/fileCategory';
 import { getDriveClient, findOrCreateFolder } from '../google/auth';
-import { getActiveUserId, getUser, nowUtc, setUserRootFolder } from './config';
+import { errorCode, errorMessage } from '../errors';
+import { getActiveUserId, ensureUserManifestKey, getUser, nowUtc, setUserRootFolder } from './config';
+import { encryptManifest, isEncryptedManifest, decryptManifest } from './manifestCrypto';
 
 
 const MANIFEST_FILE_NAME = 'manifest.json';
@@ -46,7 +49,7 @@ export async function ensureManifestLoaded(): Promise<void> {
     return;
   }
   const user = getUser(userId);
-  if (user && user.refresh_token) {
+  if (user?.refresh_token) {
     const rootFolderId = user.root_folder_id ?? (await ensureVaultFolderForUser(user));
     if (rootFolderId) {
       try {
@@ -55,19 +58,27 @@ export async function ensureManifestLoaded(): Promise<void> {
         if (fileId) {
           const res = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'stream' });
           const buffer = await streamToBuffer(res.data);
-          const parsed = tryParseManifest(buffer.toString('utf-8'));
-          if (!parsed) {
-            console.error(`[Manifest] ${user.email}: manifest.json is corrupt or invalid — skipping`);
+          const raw = buffer.toString('utf-8');
+          const text = isEncryptedManifest(raw)
+            ? (user.manifest_key ? decryptManifest(raw, user.manifest_key) : null)
+            : raw;
+          if (text === null) {
+            console.error(`[Manifest] ${user.email}: manifest.json is encrypted but cannot be decrypted (missing or wrong key) — skipping`);
           } else {
-            importManifest(parsed);
-            manifestFileIds.set(userId, fileId);
-            loaded = true;
-            console.log(`[Manifest] Loaded vault from ${user.email}: ${files.length} files, ${chunks.length} chunks`);
-            return;
+            const parsed = tryParseManifest(text);
+            if (!parsed) {
+              console.error(`[Manifest] ${user.email}: manifest.json is corrupt or invalid — skipping`);
+            } else {
+              importManifest(parsed);
+              manifestFileIds.set(userId, fileId);
+              loaded = true;
+              console.log(`[Manifest] Loaded vault from ${user.email}: ${files.length} files, ${chunks.length} chunks`);
+              return;
+            }
           }
         }
-      } catch (e: any) {
-        console.warn(`[Manifest] Failed to load manifest from ${user.email}:`, e?.message || e);
+      } catch (e) {
+        console.warn(`[Manifest] Failed to load manifest from ${user.email}:`, errorMessage(e));
       }
     }
   }
@@ -99,7 +110,7 @@ export function resetVaultStore(): void {
 }
 
 
-async function findManifestFile(drive: any, rootFolderId: string): Promise<string | null> {
+async function findManifestFile(drive: drive_v3.Drive, rootFolderId: string): Promise<string | null> {
   const list = await drive.files.list({
     q: `name='${MANIFEST_FILE_NAME}' and '${rootFolderId}' in parents and trashed=false`,
     spaces: 'drive',
@@ -108,13 +119,15 @@ async function findManifestFile(drive: any, rootFolderId: string): Promise<strin
   return list.data.files?.[0]?.id ?? null;
 }
 
-async function createManifestFile(drive: any, rootFolderId: string, payload: VaultManifest): Promise<string> {
+async function createManifestFile(drive: drive_v3.Drive, rootFolderId: string, body: string): Promise<string> {
   const created = await drive.files.create({
     requestBody: { name: MANIFEST_FILE_NAME, parents: [rootFolderId] },
-    media: { mimeType: 'application/json', body: JSON.stringify(payload) },
+    media: { mimeType: 'application/json', body },
     fields: 'id',
   });
-  return created.data.id!;
+  const id = created.data.id;
+  if (!id) throw new Error('Drive did not return an id for the manifest file.');
+  return id;
 }
 
 function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
@@ -134,8 +147,8 @@ export async function ensureVaultFolderForUser(user: UserRow): Promise<string | 
     setUserRootFolder(user.id, id);
     console.log(`[Manifest] Ensured ${VAULT_FOLDER_NAME} folder on ${user.email}:`, id);
     return id;
-  } catch (e: any) {
-    console.error(`[Manifest] Failed to ensure vault folder for ${user.email}:`, e?.message || e);
+  } catch (e) {
+    console.error(`[Manifest] Failed to ensure vault folder for ${user.email}:`, errorMessage(e));
     return null;
   }
 }
@@ -143,6 +156,7 @@ export async function ensureVaultFolderForUser(user: UserRow): Promise<string | 
 async function ensureManifestFile(user: UserRow, payload: VaultManifest): Promise<string | null> {
   let rootFolderId = user.root_folder_id ?? (await ensureVaultFolderForUser(user));
   if (!rootFolderId) return null;
+  const body = encryptManifest(JSON.stringify(payload), ensureUserManifestKey(user.id));
   try {
     const drive = getDriveClient(user.refresh_token);
     const existing = manifestFileIds.get(user.id) ?? (await findManifestFile(drive, rootFolderId));
@@ -150,12 +164,12 @@ async function ensureManifestFile(user: UserRow, payload: VaultManifest): Promis
       try {
         await drive.files.update({
           fileId: existing,
-          media: { mimeType: 'application/json', body: JSON.stringify(payload) },
+          media: { mimeType: 'application/json', body },
           fields: 'id',
         });
         return existing;
-      } catch (err: any) {
-        if (err.code === 404) {
+      } catch (err) {
+        if (errorCode(err) === 404) {
           manifestFileIds.delete(user.id);
         } else {
           throw err;
@@ -163,22 +177,22 @@ async function ensureManifestFile(user: UserRow, payload: VaultManifest): Promis
       }
     }
     try {
-      const id = await createManifestFile(drive, rootFolderId, payload);
+      const id = await createManifestFile(drive, rootFolderId, body);
       manifestFileIds.set(user.id, id);
       return id;
-    } catch (err: any) {
-      if (err.code === 404) {
+    } catch (err) {
+      if (errorCode(err) === 404) {
         setUserRootFolder(user.id, null);
         rootFolderId = await ensureVaultFolderForUser(user);
         if (!rootFolderId) return null;
-        const id = await createManifestFile(drive, rootFolderId, payload);
+        const id = await createManifestFile(drive, rootFolderId, body);
         manifestFileIds.set(user.id, id);
         return id;
       }
       throw err;
     }
-  } catch (e: any) {
-    console.error(`[Manifest] Failed to save manifest for ${user.email}:`, e?.message || e);
+  } catch (e) {
+    console.error(`[Manifest] Failed to save manifest for ${user.email}:`, errorMessage(e));
     return null;
   }
 }
@@ -219,7 +233,7 @@ export async function flushManifestSave(): Promise<void> {
       dirty = false;
       const userId = getActiveUserId();
       const user = userId != null ? getUser(userId) : undefined;
-      if (!user || !user.refresh_token) return;
+      if (!user?.refresh_token) return;
       await ensureManifestFile(user, buildManifest());
     }
   };
@@ -392,6 +406,7 @@ export function getUniqueName(userId: number, name: string, parentFolderId: numb
   }
   return candidate;
 }
+
 
 export function updateFileStatus(id: number, userId: number, status: FileRow['status']): void {
   const file = getFile(id, userId);

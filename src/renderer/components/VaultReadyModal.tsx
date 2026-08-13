@@ -1,4 +1,6 @@
-import React, {useEffect, useRef} from 'react';
+import type React from 'react';
+import {useEffect, useRef} from 'react';
+import { motion } from 'motion/react';
 
 interface VaultReadyModalProps {
   email: string | null;
@@ -29,8 +31,9 @@ export const VaultReadyModal: React.FC<VaultReadyModalProps> = ({
 
   const rows = [
     {
+      id: 'folder',
       icon: (
-        <svg
+        <svg aria-hidden="true"
           width="16"
           height="16"
           viewBox="0 0 24 24"
@@ -53,8 +56,9 @@ export const VaultReadyModal: React.FC<VaultReadyModalProps> = ({
       ),
     },
     {
+      id: 'manifest',
       icon: (
-        <svg
+        <svg aria-hidden="true"
           width="16"
           height="16"
           viewBox="0 0 24 24"
@@ -78,8 +82,9 @@ export const VaultReadyModal: React.FC<VaultReadyModalProps> = ({
       ),
     },
     {
+      id: 'chunks',
       icon: (
-        <svg
+        <svg aria-hidden="true"
           width="16"
           height="16"
           viewBox="0 0 24 24"
@@ -103,8 +108,9 @@ export const VaultReadyModal: React.FC<VaultReadyModalProps> = ({
       ),
     },
     {
+      id: 'warning',
       icon: (
-        <svg
+        <svg aria-hidden="true"
           width="16"
           height="16"
           viewBox="0 0 24 24"
@@ -132,20 +138,28 @@ export const VaultReadyModal: React.FC<VaultReadyModalProps> = ({
   ];
 
   return (
-    <div
-      className="fixed inset-0 z-[20000] flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
-      onMouseDown={handleBackdropClick}
-    >
-      <div
+      <motion.div
+        className="fixed inset-0 z-[20000] flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
+        onMouseDown={handleBackdropClick}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.15 }}
+      >
+      <motion.div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="Vault created"
         className="w-[460px] max-w-[92vw] rounded-xl border border-line bg-panel p-6 shadow-[0_10px_30px_rgba(0,0,0,0.12)]"
+        initial={{ opacity: 0, scale: 0.96, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 10 }}
+        transition={{ duration: 0.18, ease: 'easeOut' }}
       >
         <div className="mb-4 flex items-center gap-3">
           <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600">
-            <svg
+            <svg aria-hidden="true"
               width="18"
               height="18"
               viewBox="0 0 24 24"
@@ -165,8 +179,8 @@ export const VaultReadyModal: React.FC<VaultReadyModalProps> = ({
         </div>
 
         <div className="mb-6 flex flex-col gap-3.5">
-          {rows.map((row, i) => (
-            <div key={i} className="flex items-start gap-3">
+          {rows.map(row => (
+            <div key={row.id} className="flex items-start gap-3">
               <span className="mt-px flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
                 {row.icon}
               </span>
@@ -178,11 +192,11 @@ export const VaultReadyModal: React.FC<VaultReadyModalProps> = ({
         </div>
 
         <div className="flex justify-end">
-          <button ref={okRef} className="btn-primary" onClick={onClose}>
+          <button type="button" ref={okRef} className="btn-primary" onClick={onClose}>
             Got it
           </button>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };

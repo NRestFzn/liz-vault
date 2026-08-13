@@ -1,26 +1,31 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { AccountRow, StorageCategories, UserRow } from '../../shared/types';
+import type React from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import type { AccountRow, StorageCategories, UserRow } from '../../shared/types';
+import { formatBytes } from '../../shared/format';
 import { OAuthWaitingModal } from './OAuthWaitingModal';
 import { VaultReadyModal } from './VaultReadyModal';
 import { TruncatedLabel } from './TruncatedLabel';
 import { useToast } from './Toast';
+import { AnimatePresence } from 'motion/react';
 
 const { ipcRenderer } = window.require('electron');
 
 const APP_ICON = new URL('../../assets/icons/LizVault_Logo.png', window.location.href).href;
 
+export type AppView = 'files' | 'quota' | 'starred' | 'settings';
+
 interface SidebarProps {
-  activeView: string;
-  onViewChange: (view: any) => void;
+  activeView: AppView;
+  onViewChange: (view: AppView) => void;
 }
 
 const SvgIcon = ({ children }: { children: React.ReactNode }) => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     {children}
   </svg>
 );
 
-const NAV_ITEMS = [
+const NAV_ITEMS: { id: AppView; label: string; icon: React.ReactNode }[] = [
   { id: 'files', label: 'All Files', icon: <SvgIcon><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></SvgIcon> },
   { id: 'starred', label: 'Starred', icon: <SvgIcon><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></SvgIcon> },
   { id: 'quota', label: 'Quota Tracker', icon: <SvgIcon><rect width="4" height="16" x="6" y="4" rx="1"/><rect width="4" height="8" x="14" y="12" rx="1"/></SvgIcon> },
@@ -60,7 +65,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
     ipcRenderer.on('upload:complete', refresh);
     ipcRenderer.on('file:deleted', refresh);
 
-    const onUserChanged = (_: any, data: { user: UserRow | null }) => {
+    const onUserChanged = (_event: unknown, data: { user: UserRow | null }) => {
       setUser(data.user);
     };
     ipcRenderer.on('user:changed', onUserChanged);
@@ -154,7 +159,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
             <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-surface text-[14px] text-muted">?</div>
             <span>Not logged in</span>
           </div>
-          <button
+          <button type="button"
             className="btn-primary w-full py-1.5 text-[12px]"
             onClick={handleLogin}
             disabled={loginLoading}
@@ -168,16 +173,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
 
       <nav className="flex flex-col gap-0.5 px-3">
         {NAV_ITEMS.map(item => (
-          <div
+          <button type="button"
             key={item.id}
-            className={`flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2.5 text-[14px] transition-all duration-150 hover:bg-surface hover:text-ink ${
+            className={`flex w-full cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-3 py-2.5 text-left text-[14px] transition-all duration-150 hover:bg-surface hover:text-ink ${
               activeView === item.id ? 'bg-accent-soft font-medium text-accent' : 'text-muted'
             }`}
             onClick={() => onViewChange(item.id)}
           >
             <span className="flex h-5 w-5 items-center justify-center text-[16px]">{item.icon}</span>
             {item.label}
-          </div>
+          </button>
         ))}
       </nav>
 
@@ -210,7 +215,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
         </div>
 
         {user && (
-          <button
+          <button type="button"
             className="mt-3 flex cursor-pointer items-center gap-2 border-0 bg-transparent pt-2.5 text-[13px] text-video transition-opacity duration-150 hover:opacity-80"
             onClick={handleLogout}
           >
@@ -219,28 +224,24 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) =>
         )}
       </div>
 
-      {loginLoading && (
-        <OAuthWaitingModal
-          title="Sign in to LizVault"
-          onCancel={handleCancelLogin}
-        />
-      )}
+      <AnimatePresence>
+        {loginLoading && (
+          <OAuthWaitingModal
+            title="Sign in to LizVault"
+            onCancel={handleCancelLogin}
+          />
+        )}
+      </AnimatePresence>
 
-      {}
-      {showVaultReady && user && (
-        <VaultReadyModal
-          email={user.email}
-          onClose={() => setShowVaultReady(false)}
-        />
-      )}
+      <AnimatePresence>
+        {showVaultReady && user && (
+          <VaultReadyModal
+            email={user.email}
+            onClose={() => setShowVaultReady(false)}
+          />
+        )}
+      </AnimatePresence>
     </aside>
   );
 };
 
-function formatBytes(bytes: number) {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}

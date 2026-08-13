@@ -1,5 +1,7 @@
-import React, { useEffect, useRef } from 'react';
-import { FileRow as FileRowType } from '../../shared/types';
+import type React from 'react';
+import { useEffect, useRef } from 'react';
+import { motion } from 'motion/react';
+import type { FileRow as FileRowType } from '../../shared/types';
 import { FileTypeIcon } from './FileTypeIcon';
 
 interface BatchDeleteModalProps {
@@ -37,15 +39,23 @@ export const BatchDeleteModal: React.FC<BatchDeleteModalProps> = ({ items, onCon
         : `${fileCount} file${fileCount === 1 ? '' : 's'}`;
 
   return (
-    <div
-      className="fixed inset-0 z-[20000] flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
-      onMouseDown={handleBackdropClick}
-    >
-      <div
+      <motion.div
+        className="fixed inset-0 z-[20000] flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
+        onMouseDown={handleBackdropClick}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.15 }}
+      >
+      <motion.div
         ref={dialogRef}
         className="w-[440px] max-w-[90vw] rounded-xl border border-line bg-panel p-6 shadow-[0_10px_30px_rgba(0,0,0,0.12)]"
         role="alertdialog"
         aria-modal="true"
+        initial={{ opacity: 0, scale: 0.96, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 10 }}
+        transition={{ duration: 0.18, ease: 'easeOut' }}
       >
         <h3 className="mb-1 text-[18px] font-semibold text-ink">Delete {items.length} items?</h3>
         <div className="mb-4 text-[12.5px] leading-relaxed text-muted">
@@ -57,7 +67,7 @@ export const BatchDeleteModal: React.FC<BatchDeleteModalProps> = ({ items, onCon
             <div key={item.id} className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent/[0.05]">
               {item.is_folder === 1 ? (
                 <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: 'var(--color-folder-blue)1A' }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--color-folder-blue)' }}>
+                  <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--color-folder-blue)' }}>
                     <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/>
                   </svg>
                 </div>
@@ -75,8 +85,8 @@ export const BatchDeleteModal: React.FC<BatchDeleteModalProps> = ({ items, onCon
         </div>
 
         <div className="mt-6 flex justify-end gap-2">
-          <button className="btn-outline" onClick={onCancel}>Cancel</button>
-          <button
+          <button type="button" className="btn-outline" onClick={onCancel}>Cancel</button>
+          <button type="button"
             ref={confirmRef}
             className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-red-600 px-4 py-2 text-[13px] font-medium text-white transition-colors duration-150 hover:bg-red-700"
             onClick={onConfirm}
@@ -84,7 +94,7 @@ export const BatchDeleteModal: React.FC<BatchDeleteModalProps> = ({ items, onCon
             Delete {items.length} items
           </button>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };

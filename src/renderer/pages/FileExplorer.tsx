@@ -1,5 +1,6 @@
-import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
-import { FileRow as FileRowType } from '../../shared/types';
+import type React from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import type { FileRow as FileRowType } from '../../shared/types';
 import { FolderCard } from '../components/FolderCard';
 import { FolderRow } from '../components/FolderRow';
 import { FileRow } from '../components/FileRow';
@@ -10,6 +11,7 @@ import { ThumbnailImage } from '../components/ThumbnailImage';
 import { FileTypeIcon } from '../components/FileTypeIcon';
 import { TruncatedLabel } from '../components/TruncatedLabel';
 import { useToast } from '../components/Toast';
+import { AnimatePresence } from 'motion/react';
 import { splitFileName } from '../../shared/fileCategory';
 
 const { ipcRenderer, webUtils } = window.require('electron');
@@ -39,7 +41,7 @@ function estimateFolderColumns(): number {
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '';
   const isUTC = !dateStr.includes('Z') && !dateStr.includes('T');
-  const date = new Date(isUTC ? dateStr.replace(' ', 'T') + 'Z' : dateStr);
+  const date = new Date(isUTC ? `${dateStr.replace(' ', 'T')}Z` : dateStr);
   return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
@@ -54,6 +56,11 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
   const [gridColumns, setGridColumns] = useState(estimateFolderColumns);
   const folderGridRef = useRef<HTMLDivElement>(null);
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
+  const folderNameInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isCreateFolderOpen) folderNameInputRef.current?.focus();
+  }, [isCreateFolderOpen]);
   const [newFolderName, setNewFolderName] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<Set<number>>(new Set());
   const [renameTarget, setRenameTarget] = useState<FileRowType | null>(null);
@@ -85,6 +92,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
   }, [folderId, onFolderChange]);
 
   useEffect(() => {
+    void folderId;
     setFoldersExpanded(false);
     setSelectedFiles(new Set());
   }, [folderId]);
@@ -101,16 +109,16 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
   }, [items]);
 
   useEffect(() => {
-    const onDeleted = (_: any, data: { fileId: number }) => {
+    const onDeleted = (_event: unknown, data: { fileId: number }) => {
       setItems(prev => prev.filter(f => f.id !== data.fileId));
     };
-    const onStarred = (_: any, data: { file: FileRowType }) => {
+    const onStarred = (_event: unknown, data: { file: FileRowType }) => {
       setItems(prev => prev.map(f => (f.id === data.file.id ? data.file : f)));
     };
     const onUploadComplete = () => {
       loadItems();
     };
-    const onRenamed = (_: any, data: { file: FileRowType }) => {
+    const onRenamed = (_event: unknown, data: { file: FileRowType }) => {
       setItems(prev => prev.map(f => (f.id === data.file.id ? data.file : f)));
     };
 
@@ -132,6 +140,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
   const tabFolders = activeTab === 'starred' ? folders.filter(f => f.is_starred === 1) : folders;
 
   useEffect(() => {
+    void viewMode;
     if (tabFolders.length === 0) return;
     const el = folderGridRef.current;
     if (!el) return;
@@ -252,7 +261,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
       }
       setIsCreateFolderOpen(false);
       setNewFolderName('');
-    } catch (e: any) {
+    } catch (e) {
       toastError(String(e));
     }
   };
@@ -291,8 +300,8 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
     }
 
     return [...result].sort((a, b) => {
-      let aVal: any = a[sortField];
-      let bVal: any = b[sortField];
+      let aVal = a[sortField];
+      let bVal = b[sortField];
 
       if (sortField === 'created_at') {
         aVal = a.updated_at || a.created_at;
@@ -314,18 +323,18 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
   );
 
   return (
-    <div onDragOver={handleDragOver} onDrop={handleDrop} className="flex h-full flex-col">
+    <fieldset onDragOver={handleDragOver} onDrop={handleDrop} className="m-0 flex h-full min-w-0 flex-col border-0 p-0">
 
       <div className="mb-6 flex min-h-[36px] flex-wrap items-center justify-between gap-2">
         <h1 className="min-w-0 text-[20px] font-bold tracking-tight text-ink">
           <span className="inline-flex max-w-full items-center gap-1.5">
-            <span
-              className="inline-flex cursor-pointer items-center gap-1 rounded text-muted transition-colors duration-100 hover:text-accent"
+            <button type="button"
+              className="inline-flex cursor-pointer items-center gap-1 rounded border-0 bg-transparent p-0 text-muted transition-colors duration-100 hover:text-accent"
               onClick={() => onFolderChange(null, null)}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
               All Files
-            </span>
+            </button>
             {folderPath.length === 0 && folderName && (
               <span className="flex min-w-0 items-center gap-1.5">
                 <span className="text-muted">/</span>
@@ -340,12 +349,12 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
                   {isCurrent ? (
                     <span className="truncate text-ink">{folder.name}</span>
                   ) : (
-                    <span
-                      className="max-w-[180px] cursor-pointer truncate text-muted transition-colors duration-100 hover:text-accent"
+                    <button type="button"
+                      className="max-w-[180px] cursor-pointer truncate border-0 bg-transparent p-0 text-muted transition-colors duration-100 hover:text-accent"
                       onClick={() => onFolderChange(folder.id, folder.name)}
                     >
                       {folder.name}
-                    </span>
+                    </button>
                   )}
                 </span>
               );
@@ -354,17 +363,17 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
         </h1>
         <div className="flex items-center gap-2">
           <ViewToggle viewMode={viewMode} onViewChange={onViewModeChange} />
-          <button className="btn-outline" onClick={handleFileUpload}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Upload
+          <button type="button" className="btn-outline" onClick={handleFileUpload}>
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Upload
           </button>
-          <button className="btn-outline" onClick={() => setIsCreateFolderOpen(true)}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg> New Folder
+          <button type="button" className="btn-outline" onClick={() => setIsCreateFolderOpen(true)}>
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg> New Folder
           </button>
         </div>
       </div>
 
       <div className="mb-4 flex min-h-[44px] items-center gap-2">
-        <button
+        <button type="button"
           className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-3.5 py-1.5 text-[13px] font-medium transition-all duration-150 ${
             activeTab === 'recents'
               ? 'border-accent bg-accent text-white'
@@ -372,9 +381,9 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
           }`}
           onClick={() => setActiveTab('recents')}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Recents
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Recents
         </button>
-        <button
+        <button type="button"
           className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-3.5 py-1.5 text-[13px] font-medium transition-all duration-150 ${
             activeTab === 'starred'
               ? 'border-accent bg-accent text-white'
@@ -382,7 +391,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
           }`}
           onClick={() => setActiveTab('starred')}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> Starred
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> Starred
         </button>
       </div>
 
@@ -410,11 +419,11 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
 
           {hiddenFolderCount > 0 && (
             <div className="-mt-2 mb-5 flex justify-center">
-              <button
+              <button type="button"
                 className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-line bg-panel px-4 py-1.5 text-[12px] font-medium text-muted transition-all duration-150 hover:border-accent hover:text-accent"
                 onClick={() => setFoldersExpanded(v => !v)}
               >
-                <svg
+                <svg aria-hidden="true"
                   width="14"
                   height="14"
                   viewBox="0 0 24 24"
@@ -523,10 +532,10 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-4">
             {filteredAndSortedFiles.map(file => (
-              <div
+              <button type="button"
                 key={file.id}
                 id={`file-card-${file.id}`}
-                className={`group relative flex cursor-pointer flex-col rounded-xl border transition-all duration-200 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] ${
+                className={`group relative flex cursor-pointer flex-col rounded-xl border p-0 text-left transition-all duration-200 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] ${
                   flashId === file.id ? 'border-accent bg-accent-soft shadow-[0_0_0_3px_rgba(51,102,255,0.15)]' : selectedFiles.has(file.id) ? 'border-accent bg-accent-soft' : 'border-line bg-panel hover:border-[#d1d5db]'
                 }`}
                 onClick={(e) => {
@@ -552,13 +561,13 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
                   </div>
                   <div className="flex flex-shrink-0 items-center gap-1.5 pl-2">
                     {file.is_starred === 1 && (
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-400">
+                      <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-400">
                         <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
                       </svg>
                     )}
                   </div>
                 </div>
-              </div>
+              </button>
             ))}
             {tabFolders.length === 0 && filteredAndSortedFiles.length === 0 && (
               <div className="col-span-full p-12 text-center text-[14px] text-muted">
@@ -578,44 +587,47 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
           <div className="w-[400px] max-w-[90vw] rounded-xl border border-line bg-panel p-6 shadow-[0_10px_30px_rgba(0,0,0,0.1)]">
             <h3 className="mb-4 text-[18px] font-semibold">Create New Folder</h3>
             <input
+              ref={folderNameInputRef}
               type="text"
               className="mb-6 w-full rounded-lg border border-line bg-panel px-3 py-2 text-[13px] text-ink transition-colors duration-150 placeholder:text-muted focus:border-accent focus:shadow-[0_0_0_3px_rgba(51,102,255,0.08)]"
               placeholder="Folder Name"
               value={newFolderName}
               onChange={(e) => setNewFolderName(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFolder(); }}
-              autoFocus
             />
             <div className="flex justify-end gap-2">
-              <button className="btn-outline" onClick={() => setIsCreateFolderOpen(false)}>Cancel</button>
-              <button className="btn-primary" onClick={handleCreateFolder}>Create Folder</button>
+              <button type="button" className="btn-outline" onClick={() => setIsCreateFolderOpen(false)}>Cancel</button>
+              <button type="button" className="btn-primary" onClick={handleCreateFolder}>Create Folder</button>
             </div>
           </div>
         </div>
       )}
-      {contextMenu && (
-        <ContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          file={contextMenu.file}
-          selectedFiles={selectedFiles.has(contextMenu.file.id) ? visibleItems.filter(f => selectedFiles.has(f.id)) : undefined}
-          onOpen={contextMenu.file.is_folder === 1 ? () => onFolderChange(contextMenu.file.id, contextMenu.file.name) : undefined}
-          onRename={(f) => { setRenameTarget(f); setRenameError(null); }}
-          onClose={() => setContextMenu(null)}
-        />
-      )}
+      <AnimatePresence>
+        {contextMenu && (
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            file={contextMenu.file}
+            selectedFiles={selectedFiles.has(contextMenu.file.id) ? visibleItems.filter(f => selectedFiles.has(f.id)) : undefined}
+            onOpen={contextMenu.file.is_folder === 1 ? () => onFolderChange(contextMenu.file.id, contextMenu.file.name) : undefined}
+            onRename={(f) => { setRenameTarget(f); setRenameError(null); }}
+            onClose={() => setContextMenu(null)}
+          />
+        )}
+      </AnimatePresence>
 
-      {}
-      {renameTarget && (
-        <RenameModal
-          title={renameTarget.is_folder === 1 ? 'Rename Folder' : 'Rename File'}
-          initialName={renameTarget.is_folder === 1 ? renameTarget.name : splitFileName(renameTarget.name).base}
-          suffix={renameTarget.is_folder === 1 ? '' : splitFileName(renameTarget.name).ext}
-          error={renameError}
-          onConfirm={handleRenameConfirm}
-          onCancel={() => { setRenameTarget(null); setRenameError(null); }}
-        />
-      )}
-    </div>
+      <AnimatePresence>
+        {renameTarget && (
+          <RenameModal
+            title={renameTarget.is_folder === 1 ? 'Rename Folder' : 'Rename File'}
+            initialName={renameTarget.is_folder === 1 ? renameTarget.name : splitFileName(renameTarget.name).base}
+            suffix={renameTarget.is_folder === 1 ? '' : splitFileName(renameTarget.name).ext}
+            error={renameError}
+            onConfirm={handleRenameConfirm}
+            onCancel={() => { setRenameTarget(null); setRenameError(null); }}
+          />
+        )}
+      </AnimatePresence>
+    </fieldset>
   );
 };

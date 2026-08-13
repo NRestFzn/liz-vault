@@ -1,4 +1,4 @@
-import React from 'react';
+import type React from 'react';
 
 interface FolderCardProps {
   name: string;
@@ -19,7 +19,7 @@ const FOLDER_COLORS = {
 };
 
 const FolderSVG: React.FC<{ color: string }> = ({ color }) => (
-  <svg
+  <svg aria-hidden="true"
     className="mb-3 h-10 w-12 shrink-0"
     width="48"
     height="40"
@@ -32,55 +32,74 @@ const FolderSVG: React.FC<{ color: string }> = ({ color }) => (
   </svg>
 );
 
-export const FolderCard: React.FC<FolderCardProps> = ({ name, updated, color, itemCount, isStarred, isSelected, onSelect, onClick, onContextMenu }) => (
-  <div
-    onClick={onClick}
-    onContextMenu={onContextMenu}
-    className={`group/folder relative flex h-[128px] flex-col justify-between rounded-xl border bg-panel p-4 transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:z-10 hover:border-[#c9d2e0] hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] ${onClick ? 'cursor-pointer' : ''} ${isSelected ? 'border-accent bg-accent-soft' : 'border-line'}`}
-  >
-    {onSelect && (
-      <button
-        className={`absolute left-3 top-3 z-20 flex h-[18px] w-[18px] cursor-pointer items-center justify-center rounded-[5px] border transition-all duration-150 ${
-          isSelected
-            ? 'border-accent bg-accent text-white opacity-100'
-            : 'border-[#c3ccda] bg-white opacity-0 group-hover/folder:opacity-100 hover:border-accent'
-        }`}
-        onClick={(e) => { e.stopPropagation(); onSelect(e); }}
-        aria-label={isSelected ? 'Deselect folder' : 'Select folder'}
-      >
-        {isSelected && (
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-        )}
-      </button>
-    )}
-    {isStarred && (
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 24 24"
-        fill="currentColor"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="absolute right-3 top-3 z-10 text-amber-400"
-      >
-        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-      </svg>
-    )}
-    <FolderSVG color={FOLDER_COLORS[color]} />
+export const FolderCard: React.FC<FolderCardProps> = ({ name, updated, color, itemCount, isStarred, isSelected, onSelect, onClick, onContextMenu }) => {
+  const content = (
+    <>
+      {isStarred && (
+        <svg aria-hidden="true"
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="absolute right-3 top-3 z-10 text-amber-400"
+        >
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+        </svg>
+      )}
+      <FolderSVG color={FOLDER_COLORS[color]} />
 
-    <div className="min-w-0">
-      <div className="truncate text-[13px] font-semibold text-ink">{name}</div>
-      <div className="pointer-events-none absolute left-4 top-full z-[100] mt-1.5 invisible w-max max-w-[200px] -translate-y-1 break-words rounded bg-[#333] px-2.5 py-1.5 text-[12px] font-medium leading-relaxed text-white opacity-0 shadow-lg transition-all delay-300 group-hover/folder:visible group-hover/folder:translate-y-0 group-hover/folder:opacity-100">
-        {name}
+      <div className="min-w-0">
+        <div className="truncate text-[13px] font-semibold text-ink">{name}</div>
+        <div className="pointer-events-none absolute left-4 top-full z-[100] mt-1.5 invisible w-max max-w-[200px] -translate-y-1 break-words rounded bg-[#333] px-2.5 py-1.5 text-[12px] font-medium leading-relaxed text-white opacity-0 shadow-lg transition-all delay-300 group-hover/folder:visible group-hover/folder:translate-y-0 group-hover/folder:opacity-100">
+          {name}
+        </div>
+        <div className="mt-1 flex items-center justify-between whitespace-nowrap text-[11px] text-muted">
+          <span className="truncate">Updated {updated}</span>
+          {itemCount !== undefined && (
+            <span className="flex-shrink-0 pl-2">{itemCount} item{itemCount === 1 ? '' : 's'}</span>
+          )}
+        </div>
       </div>
-      <div className="mt-1 flex items-center justify-between whitespace-nowrap text-[11px] text-muted">
-        <span className="truncate">Updated {updated}</span>
-        {itemCount !== undefined && (
-          <span className="flex-shrink-0 pl-2">{itemCount} item{itemCount === 1 ? '' : 's'}</span>
-        )}
-      </div>
+    </>
+  );
+
+  return (
+    <div
+      className={`group/folder relative flex h-[128px] flex-col justify-between rounded-xl border bg-panel transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:z-10 hover:border-[#c9d2e0] hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] ${onClick ? 'cursor-pointer' : ''} ${isSelected ? 'border-accent bg-accent-soft' : 'border-line'}`}
+    >
+      {onClick ? (
+        <button
+          type="button"
+          onClick={onClick}
+          onContextMenu={onContextMenu}
+          className="flex h-full w-full flex-col justify-between rounded-xl p-4 text-left"
+        >
+          {content}
+        </button>
+      ) : (
+        <div className="flex h-full w-full flex-col justify-between rounded-xl p-4">
+          {content}
+        </div>
+      )}
+      {onSelect && (
+        <button type="button"
+          className={`absolute left-3 top-3 z-20 flex h-[18px] w-[18px] cursor-pointer items-center justify-center rounded-[5px] border transition-all duration-150 ${
+            isSelected
+              ? 'border-accent bg-accent text-white opacity-100'
+              : 'border-[#c3ccda] bg-white opacity-0 group-hover/folder:opacity-100 hover:border-accent'
+          }`}
+          onClick={(e) => { e.stopPropagation(); onSelect(e); }}
+          aria-label={isSelected ? 'Deselect folder' : 'Select folder'}
+        >
+          {isSelected && (
+            <svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          )}
+        </button>
+      )}
     </div>
-  </div>
-);
+  );
+};

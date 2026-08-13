@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+import type React from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface TruncatedLabelProps {
   text: string;
@@ -19,7 +20,7 @@ export const TruncatedLabel: React.FC<TruncatedLabelProps> = ({ text, className 
     const observer = new ResizeObserver(check);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [text]);
+  }, []);
 
   const placement = position === 'below'
     ? 'top-full mt-1.5'

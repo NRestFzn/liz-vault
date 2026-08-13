@@ -13,7 +13,9 @@
     "watch:main": "tsc -p tsconfig.main.json -w",
     "watch:renderer": "esbuild src/renderer/index.tsx --bundle --outfile=dist/renderer/bundle.js --loader:.tsx=tsx --loader:.ts=ts --watch",
     "watch:css": "tailwindcss -i src/renderer/tailwind.css -o dist/renderer/index.css --watch",
-    "dev": "npm run build && concurrently \"npm run watch:main\" \"npm run watch:renderer\" \"npm run watch:css\" \"electron .\""
+    "dev": "npm run build && concurrently \"npm run watch:main\" \"npm run watch:renderer\" \"npm run watch:css\" \"electron .\"",
+    "test": "rm -rf dist/tests && esbuild tests/*.test.ts --bundle --platform=node --format=cjs --outdir=dist/tests --external:electron --external:googleapis --log-level=warning && node --test \"dist/tests/**/*.test.js\"",
+    "lint": "biome lint src tests"
   },
   "keywords": [],
   "author": "",
@@ -31,10 +33,12 @@
   },
   "dependencies": {
     "googleapis": "^174.0.1",
+    "motion": "^13.1.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.8",
     "@tailwindcss/cli": "^4.3.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",

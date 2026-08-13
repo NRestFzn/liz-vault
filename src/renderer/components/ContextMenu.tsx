@@ -1,8 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { FileRow as FileRowType } from '../../shared/types';
+import type React from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { FileRow as FileRowType } from '../../shared/types';
 import { ConfirmDialog } from './ConfirmDialog';
 import { BatchDeleteModal } from './BatchDeleteModal';
 import { useToast } from './Toast';
+import { AnimatePresence } from 'motion/react';
 const { ipcRenderer } = window.require('electron');
 
 interface ContextMenuProps {
@@ -48,7 +50,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, o
         const res = await ipcRenderer.invoke('file:delete', { fileId: targets[0].id });
         if (res?.error) toastError(res.error);
       }
-    } catch (e: any) {
+    } catch (e) {
       toastError(String(e));
     }
     onClose();
@@ -103,7 +105,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, o
           const res = await ipcRenderer.invoke('file:download', { fileId: target.id, savePath: filePath });
           if (res?.error) toastError(res.error);
         }
-      } catch (e: any) {
+      } catch (e) {
         toastError(String(e));
       }
     }
@@ -115,7 +117,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, o
       try {
         const res = await ipcRenderer.invoke('file:star', { fileId: target.id, starred: !file.is_starred });
         if (res?.error) toastError(res.error);
-      } catch (e: any) {
+      } catch (e) {
         toastError(String(e));
       }
     }
@@ -142,72 +144,75 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, o
       className="fixed z-[10000] min-w-[160px] rounded-lg border border-line bg-surface p-1.5 shadow-xl outline-none select-none flex flex-col gap-0.5"
     >
       {isFolder && onOpen && (
-        <button
+        <button type="button"
           onClick={() => { onOpen(); onClose(); }}
           className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-[13px] font-medium text-ink transition-colors hover:bg-accent/[0.08] hover:text-accent cursor-pointer"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
           Open
         </button>
       )}
 
       {!isFolder && (
-        <button
+        <button type="button"
           onClick={handleDownload}
           className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-[13px] font-medium text-ink transition-colors hover:bg-accent/[0.08] hover:text-accent cursor-pointer"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           {targets.length > 1 ? `Download ${targets.length} items` : 'Download'}
         </button>
       )}
-      
-      <button
+
+      <button type="button"
         onClick={handleStar}
         className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-[13px] font-medium text-ink transition-colors hover:bg-accent/[0.08] hover:text-accent cursor-pointer"
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill={file.is_starred ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={file.is_starred ? "text-amber-400" : ""}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill={file.is_starred ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={file.is_starred ? "text-amber-400" : ""}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
         {targets.length > 1 ? (file.is_starred ? `Remove Star from ${targets.length} items` : `Star ${targets.length} items`) : (file.is_starred ? 'Remove Star' : 'Add Star')}
       </button>
       
       <div className="my-1 h-[1px] w-full bg-line" />
 
       {targets.length === 1 && onRename && (
-        <button
+        <button type="button"
           onClick={() => { onRename(file); onClose(); }}
           className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-[13px] font-medium text-ink transition-colors hover:bg-accent/[0.08] hover:text-accent cursor-pointer"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
           Rename
         </button>
       )}
 
-      <button
+      <button type="button"
         onClick={handleDeleteClick}
         className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-[13px] font-medium text-red-600 transition-colors hover:bg-red-50 cursor-pointer"
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
         {targets.length > 1 ? `Delete ${targets.length} items` : 'Delete'}
       </button>
 
-      {confirmOpen && !isBatch && (
-        <ConfirmDialog
-          title={deleteTitle}
-          message={deleteMessage}
-          confirmLabel="Delete"
-          checkboxLabel="Don't ask again"
-          onConfirm={handleConfirmDelete}
-          onCancel={handleCancelDelete}
-        />
-      )}
+      <AnimatePresence>
+        {confirmOpen && !isBatch && (
+          <ConfirmDialog
+            title={deleteTitle}
+            message={deleteMessage}
+            confirmLabel="Delete"
+            checkboxLabel="Don't ask again"
+            onConfirm={handleConfirmDelete}
+            onCancel={handleCancelDelete}
+          />
+        )}
+      </AnimatePresence>
 
-      {}
-      {batchOpen && isBatch && (
-        <BatchDeleteModal
-          items={targets}
-          onConfirm={runDelete}
-          onCancel={() => setBatchOpen(false)}
-        />
-      )}
+      <AnimatePresence>
+        {batchOpen && isBatch && (
+          <BatchDeleteModal
+            items={targets}
+            onConfirm={runDelete}
+            onCancel={() => setBatchOpen(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };

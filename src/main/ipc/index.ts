@@ -1,15 +1,16 @@
-import { ipcMain, BrowserWindow } from 'electron';
+import { ipcMain } from 'electron';
+import type { BrowserWindow, IpcMainInvokeEvent } from 'electron';
+import { errorMessage } from '../errors';
 import {
   getAllAccounts, removeAccount, setAccountTokenStatus,
-  getAllFiles, searchFilesAndFolders, removeFile, getFile,
+  getAllFiles, searchFilesAndFolders, getFile,
   createFolder, getFilesInFolder, getFolderItemCounts, getFolderPath, toggleStarred, getStarredFiles, getStorageStats,
-  renameFile, findDuplicateName, getUniqueName,
-  addUser, getUser, removeUser, getAppState, setAppState, deleteAppState,
+  renameFile, findDuplicateName, getUniqueName, getUser, getAppState, setAppState, 
   ensureManifestLoaded, invalidateManifestLoaded, resetVaultStore, getActiveUserId, setActiveUserId,
-  getGoogleCredentials, setGoogleCredentials
+  getGoogleCredentials, setGoogleCredentials, getOneDriveCredentials, setOneDriveCredentials
 } from '../db/queries';
 import { initiateOAuthFlow, initiateLoginFlow, OAuthCancelledError, abortActiveOAuthFlow, testAccountToken } from '../google/auth';
-import { 
+import type { 
   IpcAccountRemoveRequest, IpcAccountTestResponse, IpcFileDeleteRequest, IpcAccountRemoveResponse,
   IpcFileDeleteResponse, IpcFilesDeleteManyRequest, IpcFilesDeleteManyResponse,
   IpcFileUploadRequest, IpcFileUploadResponse, IpcFileDownloadRequest, IpcFileDownloadResponse,
@@ -21,7 +22,7 @@ import {
   IpcFilesSearchAllRequest, IpcFilesSearchAllResponse,
   IpcFileRenameRequest, IpcFileRenameResponse,
   IpcSettingsGetResponse, IpcSettingsSetRequest, IpcSettingsSetResponse,
-  IpcCredentialsGetResponse, IpcCredentialsSetRequest, IpcCredentialsSetResponse
+  IpcCredentialsGetRequest, IpcCredentialsGetResponse, IpcCredentialsSetRequest, IpcCredentialsSetResponse
 } from '../../shared/types';
 import { uploadFile } from '../vault/upload';
 import { downloadFile } from '../vault/download';
@@ -49,32 +50,32 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
       await ensureManifestLoaded();
       mainWindow.webContents.send('account:added', { account });
       return { account, folderCreated };
-    } catch (e: any) {
+    } catch (e) {
       if (e instanceof OAuthCancelledError) return { cancelled: true };
-      return { error: e.message };
+      return { error: errorMessage(e) };
     }
   });
 
-  ipcMain.handle('account:test', async (_: any, payload: { accountId: number }): Promise<IpcAccountTestResponse> => {
+  ipcMain.handle('account:test', async (_event: IpcMainInvokeEvent, payload: { accountId: number }): Promise<IpcAccountTestResponse> => {
     try {
       const userId = requireUserId();
       const result = await testAccountToken(userId, payload.accountId);
       if (result.ok) setAccountTokenStatus(payload.accountId, true);
       else if (result.expired) setAccountTokenStatus(payload.accountId, false);
       return result;
-    } catch (e: any) {
-      return { ok: false, expired: false, error: e.message };
+    } catch (e) {
+      return { ok: false, expired: false, error: errorMessage(e) };
     }
   });
 
-  ipcMain.handle('account:remove', async (_: any, payload: IpcAccountRemoveRequest): Promise<IpcAccountRemoveResponse> => {
+  ipcMain.handle('account:remove', async (_event: IpcMainInvokeEvent, payload: IpcAccountRemoveRequest): Promise<IpcAccountRemoveResponse> => {
     try {
       const userId = requireUserId();
       removeAccount(payload.accountId, userId);
       mainWindow.webContents.send('account:removed', { accountId: payload.accountId });
       return { success: true };
-    } catch (e: any) {
-      return { error: e.message };
+    } catch (e) {
+      return { error: errorMessage(e) };
     }
   });
 
@@ -82,7 +83,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
     try {
       const userId = requireUserId();
       return { accounts: getAllAccounts(userId) };
-    } catch (e) {
+    } catch (_e) {
       return { accounts: [] };
     }
   });
@@ -96,9 +97,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
       await ensureManifestLoaded();
       mainWindow.webContents.send('user:changed', { user });
       return { user, folderCreated };
-    } catch (e: any) {
+    } catch (e) {
       if (e instanceof OAuthCancelledError) return { cancelled: true };
-      return { error: e.message };
+      return { error: errorMessage(e) };
     }
   });
 
@@ -108,8 +109,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
       resetVaultStore();
       mainWindow.webContents.send('user:changed', { user: null });
       return { success: true };
-    } catch (e: any) {
-      return { error: e.message };
+    } catch (e) {
+      return { error: errorMessage(e) };
     }
   });
 
@@ -119,7 +120,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
       if (userId == null) return { user: null };
       const user = getUser(userId);
       return { user: user ?? null };
-    } catch (e: any) {
+    } catch {
       return { user: null };
     }
   });
@@ -129,7 +130,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
       await ensureManifestLoaded();
       const userId = requireUserId();
       return { categories: getStorageStats(userId) };
-    } catch (e) {
+    } catch (_e) {
       return { categories: { photo: 0, video: 0, document: 0, other: 0 } };
     }
   });
@@ -140,24 +141,24 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
       await ensureManifestLoaded();
       const userId = requireUserId();
       return { files: getAllFiles(userId) };
-    } catch (e) {
+    } catch (_e) {
       return { files: [] };
     }
   });
 
-  ipcMain.handle('files:search-all', async (_: any, payload: IpcFilesSearchAllRequest): Promise<IpcFilesSearchAllResponse> => {
+  ipcMain.handle('files:search-all', async (_event: IpcMainInvokeEvent, payload: IpcFilesSearchAllRequest): Promise<IpcFilesSearchAllResponse> => {
     try {
       await ensureManifestLoaded();
       const userId = requireUserId();
       const query = (payload.query || '').trim();
       if (!query) return { results: [] };
       return { results: searchFilesAndFolders(userId, query) };
-    } catch (e) {
+    } catch (_e) {
       return { results: [] };
     }
   });
 
-  ipcMain.handle('folder:create', async (_: any, payload: IpcFolderCreateRequest): Promise<IpcFolderCreateResponse> => {
+  ipcMain.handle('folder:create', async (_event: IpcMainInvokeEvent, payload: IpcFolderCreateRequest): Promise<IpcFolderCreateResponse> => {
     try {
       await ensureManifestLoaded();
       const userId = requireUserId();
@@ -173,37 +174,37 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
         return { folder: createFolder(userId, getUniqueName(userId, name, parentId, true), parentId) };
       }
       return { folder: createFolder(userId, name, parentId) };
-    } catch (e: any) {
-      return { error: e.message };
+    } catch (e) {
+      return { error: errorMessage(e) };
     }
   });
 
-  ipcMain.handle('files:in-folder', async (_: any, payload: IpcFilesInFolderRequest): Promise<IpcFilesInFolderResponse> => {
+  ipcMain.handle('files:in-folder', async (_event: IpcMainInvokeEvent, payload: IpcFilesInFolderRequest): Promise<IpcFilesInFolderResponse> => {
     try {
       await ensureManifestLoaded();
       const userId = requireUserId();
       return { items: getFilesInFolder(userId, payload.folderId) };
-    } catch (e) {
+    } catch (_e) {
       return { items: [] };
     }
   });
 
-  ipcMain.handle('folders:item-counts', async (_: any, payload: IpcFolderItemCountsRequest): Promise<IpcFolderItemCountsResponse> => {
+  ipcMain.handle('folders:item-counts', async (_event: IpcMainInvokeEvent, payload: IpcFolderItemCountsRequest): Promise<IpcFolderItemCountsResponse> => {
     try {
       await ensureManifestLoaded();
       const userId = requireUserId();
       return { counts: getFolderItemCounts(userId, payload.folderIds ?? []) };
-    } catch (e) {
+    } catch (_e) {
       return { counts: {} };
     }
   });
 
-  ipcMain.handle('folders:path', async (_: any, payload: IpcFolderPathRequest): Promise<IpcFolderPathResponse> => {
+  ipcMain.handle('folders:path', async (_event: IpcMainInvokeEvent, payload: IpcFolderPathRequest): Promise<IpcFolderPathResponse> => {
     try {
       await ensureManifestLoaded();
       const userId = requireUserId();
       return { path: getFolderPath(userId, payload.folderId ?? null) };
-    } catch (e) {
+    } catch (_e) {
       return { path: [] };
     }
   });
@@ -213,12 +214,12 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
       await ensureManifestLoaded();
       const userId = requireUserId();
       return { files: getStarredFiles(userId) };
-    } catch (e) {
+    } catch (_e) {
       return { files: [] };
     }
   });
 
-  ipcMain.handle('file:star', async (_: any, payload: IpcFileStarRequest): Promise<IpcFileStarResponse> => {
+  ipcMain.handle('file:star', async (_event: IpcMainInvokeEvent, payload: IpcFileStarRequest): Promise<IpcFileStarResponse> => {
     try {
       await ensureManifestLoaded();
       const userId = requireUserId();
@@ -226,13 +227,13 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
       if (!file) return { error: 'File not found' };
       mainWindow.webContents.send('file:starred', { file });
       return { file };
-    } catch (e: any) {
-      return { error: e.message };
+    } catch (e) {
+      return { error: errorMessage(e) };
     }
   });
 
 
-  ipcMain.handle('file:delete', async (_: any, payload: IpcFileDeleteRequest): Promise<IpcFileDeleteResponse> => {
+  ipcMain.handle('file:delete', async (_event: IpcMainInvokeEvent, payload: IpcFileDeleteRequest): Promise<IpcFileDeleteResponse> => {
     try {
       await ensureManifestLoaded();
       const userId = requireUserId();
@@ -243,12 +244,12 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
       for (const id of deletedIds) invalidateThumbnail(id);
       mainWindow.webContents.send('file:deleted', { fileId: payload.fileId });
       return { success: true };
-    } catch (e: any) {
-      return { error: e.message };
+    } catch (e) {
+      return { error: errorMessage(e) };
     }
   });
 
-  ipcMain.handle('file:delete-many', async (_: any, payload: IpcFilesDeleteManyRequest): Promise<IpcFilesDeleteManyResponse> => {
+  ipcMain.handle('file:delete-many', async (_event: IpcMainInvokeEvent, payload: IpcFilesDeleteManyRequest): Promise<IpcFilesDeleteManyResponse> => {
     try {
       await ensureManifestLoaded();
       const userId = requireUserId();
@@ -261,13 +262,13 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
         mainWindow.webContents.send('file:deleted', { fileId: id });
       }
       return { success: true };
-    } catch (e: any) {
-      return { error: e.message };
+    } catch (e) {
+      return { error: errorMessage(e) };
     }
   });
 
 
-  ipcMain.handle('file:rename', async (_: any, payload: IpcFileRenameRequest): Promise<IpcFileRenameResponse> => {
+  ipcMain.handle('file:rename', async (_event: IpcMainInvokeEvent, payload: IpcFileRenameRequest): Promise<IpcFileRenameResponse> => {
     try {
       await ensureManifestLoaded();
       const userId = requireUserId();
@@ -294,8 +295,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
       invalidateThumbnail(payload.fileId);
       mainWindow.webContents.send('file:renamed', { file });
       return { file };
-    } catch (e: any) {
-      return { error: e.message };
+    } catch (e) {
+      return { error: errorMessage(e) };
     }
   });
 
@@ -307,12 +308,12 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
         autoRenameDuplicates: getAppState('autoRenameDuplicates') !== '0',
         autoRefreshQuota: getAppState('autoRefreshQuota') !== '0'
       };
-    } catch (e: any) {
+    } catch {
       return { confirmDelete: true, autoRenameDuplicates: true, autoRefreshQuota: true };
     }
   });
 
-  ipcMain.handle('settings:set', async (_: any, payload: IpcSettingsSetRequest): Promise<IpcSettingsSetResponse> => {
+  ipcMain.handle('settings:set', async (_event: IpcMainInvokeEvent, payload: IpcSettingsSetRequest): Promise<IpcSettingsSetResponse> => {
     try {
       if (payload.confirmDelete !== undefined) {
         setAppState('confirmDelete', payload.confirmDelete ? '1' : '0');
@@ -324,39 +325,45 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
         setAppState('autoRefreshQuota', payload.autoRefreshQuota ? '1' : '0');
       }
       return { success: true };
-    } catch (e: any) {
-      return { error: e.message };
+    } catch (e) {
+      return { error: errorMessage(e) };
     }
   });
 
 
-  ipcMain.handle('credentials:get', async (): Promise<IpcCredentialsGetResponse> => {
-    return getGoogleCredentials();
+  ipcMain.handle('credentials:get', async (_event: IpcMainInvokeEvent, payload: IpcCredentialsGetRequest): Promise<IpcCredentialsGetResponse> => {
+    const provider = payload?.provider ?? 'google';
+    return provider === 'onedrive' ? getOneDriveCredentials() : getGoogleCredentials();
   });
 
-  ipcMain.handle('credentials:set', async (_: any, payload: IpcCredentialsSetRequest): Promise<IpcCredentialsSetResponse> => {
+  ipcMain.handle('credentials:set', async (_event: IpcMainInvokeEvent, payload: IpcCredentialsSetRequest): Promise<IpcCredentialsSetResponse> => {
     try {
       const clientId = (payload.clientId || '').trim();
       const clientSecret = (payload.clientSecret || '').trim();
-      setGoogleCredentials(clientId, clientSecret);
+      const provider = payload.provider ?? 'google';
+      if (provider === 'onedrive') {
+        setOneDriveCredentials(clientId, clientSecret);
+      } else {
+        setGoogleCredentials(clientId, clientSecret);
+      }
       return { success: true };
-    } catch (e: any) {
-      return { error: e.message };
+    } catch (e) {
+      return { error: errorMessage(e) };
     }
   });
 
-  ipcMain.handle('file:thumbnail', async (_: any, payload: { fileId: number }) => {
+  ipcMain.handle('file:thumbnail', async (_event: IpcMainInvokeEvent, payload: { fileId: number }) => {
     try {
       await ensureManifestLoaded();
       const userId = requireUserId();
       const dataUrl = await getThumbnailDataUrl(userId, payload.fileId);
       return { dataUrl };
-    } catch (e) {
+    } catch (_e) {
       return { dataUrl: null };
     }
   });
 
-  ipcMain.handle('file:upload', async (_: any, payload: IpcFileUploadRequest): Promise<IpcFileUploadResponse> => {
+  ipcMain.handle('file:upload', async (_event: IpcMainInvokeEvent, payload: IpcFileUploadRequest): Promise<IpcFileUploadResponse> => {
     try {
       await ensureManifestLoaded();
       const userId = requireUserId();
@@ -373,19 +380,19 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
 
       uploadFile(userId, mainWindow, payload.filePath, fileName, parentId).catch(console.error);
       return {};
-    } catch (e: any) {
-      return { error: e.message };
+    } catch (e) {
+      return { error: errorMessage(e) };
     }
   });
 
-  ipcMain.handle('file:download', async (_: any, payload: IpcFileDownloadRequest): Promise<IpcFileDownloadResponse> => {
+  ipcMain.handle('file:download', async (_event: IpcMainInvokeEvent, payload: IpcFileDownloadRequest): Promise<IpcFileDownloadResponse> => {
     try {
       await ensureManifestLoaded();
       const userId = requireUserId();
       downloadFile(userId, mainWindow, payload.fileId, payload.savePath).catch(console.error);
       return { success: true };
-    } catch (e: any) {
-      return { error: e.message };
+    } catch (e) {
+      return { error: errorMessage(e) };
     }
   });
 
@@ -398,15 +405,15 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
     if (canceled || filePaths.length === 0) {
       return { filePath: null, fileName: null };
     }
-    const path = require('path');
+    const path = require('node:path');
     const filePath = filePaths[0];
     const fileName = path.basename(filePath);
     return { filePath, fileName };
   });
 
-  ipcMain.handle('file:pick-download-path', async (_: any, fileName: string) => {
+  ipcMain.handle('file:pick-download-path', async (_event: IpcMainInvokeEvent, fileName: string) => {
     const { dialog } = require('electron');
-    const path = require('path');
+    const path = require('node:path');
     const ext = path.extname(fileName).toLowerCase().replace('.', '');
     const filters = ext ? [{ name: `${ext.toUpperCase()} File`, extensions: [ext] }, { name: 'All Files', extensions: ['*'] }] : [{ name: 'All Files', extensions: ['*'] }];
     const { filePath } = await dialog.showSaveDialog(mainWindow, {
@@ -417,60 +424,4 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
     return { filePath };
   });
 
-  ipcMain.on('show-context-menu', (event: any, fileId: any, fileName: string, isStarred: any = 0) => {
-    ensureManifestLoaded().catch(() => {});
-    const { Menu, dialog } = require('electron');
-    const template = [
-      {
-        label: 'Download',
-        click: async () => {
-          try {
-            const userId = requireUserId();
-            const path = require('path');
-            const ext = path.extname(fileName).toLowerCase().replace('.', '');
-            const filters = ext ? [{ name: `${ext.toUpperCase()} File`, extensions: [ext] }, { name: 'All Files', extensions: ['*'] }] : [{ name: 'All Files', extensions: ['*'] }];
-            const { filePath } = await dialog.showSaveDialog(mainWindow, {
-              title: 'Download File',
-              defaultPath: fileName,
-              filters: filters
-            });
-            if (filePath) {
-              downloadFile(userId, mainWindow, fileId, filePath).catch(console.error);
-            }
-          } catch (e) {
-            console.error(e);
-          }
-        }
-      },
-      { type: 'separator' },
-      {
-        label: isStarred ? 'Unstar' : 'Star',
-        click: () => {
-          try {
-            const userId = requireUserId();
-            const file = toggleStarred(Number(fileId), userId, !isStarred);
-            if (file) mainWindow.webContents.send('file:starred', { file });
-          } catch (e) {
-            console.error(e);
-          }
-        }
-      },
-      { type: 'separator' },
-      {
-        label: 'Delete',
-        click: async () => {
-          try {
-            const userId = requireUserId();
-            await deleteFileChunks(userId, fileId);
-            invalidateThumbnail(fileId);
-            mainWindow.webContents.send('file:deleted', { fileId });
-          } catch (e) {
-            console.error(e);
-          }
-        }
-      }
-    ];
-    const menu = Menu.buildFromTemplate(template as any);
-    menu.popup({ window: BrowserWindow.fromWebContents(event.sender)! });
-  });
 }

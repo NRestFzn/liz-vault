@@ -1,4 +1,5 @@
-import React from 'react';
+import type React from 'react';
+import { motion } from 'motion/react';
 
 interface OAuthWaitingModalProps {
   title: string;
@@ -7,8 +8,20 @@ interface OAuthWaitingModalProps {
 
 export const OAuthWaitingModal: React.FC<OAuthWaitingModalProps> = ({ title, onCancel }) => {
   return (
-    <div className="fixed inset-0 z-[20001] flex items-center justify-center bg-black/40 backdrop-blur-[2px]">
-      <div className="flex w-[380px] max-w-[90vw] flex-col items-center rounded-xl border border-line bg-panel p-8 shadow-[0_10px_30px_rgba(0,0,0,0.12)]">
+    <motion.div
+      className="fixed inset-0 z-[20001] flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.15 }}
+    >
+      <motion.div
+        className="flex w-[380px] max-w-[90vw] flex-col items-center rounded-xl border border-line bg-panel p-8 shadow-[0_10px_30px_rgba(0,0,0,0.12)]"
+        initial={{ opacity: 0, scale: 0.96, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 10 }}
+        transition={{ duration: 0.18, ease: 'easeOut' }}
+      >
         <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-surface">
           <GoogleG />
         </div>
@@ -23,16 +36,16 @@ export const OAuthWaitingModal: React.FC<OAuthWaitingModalProps> = ({ title, onC
           Waiting for authorization…
         </div>
 
-        <button className="btn-outline w-full justify-center" onClick={onCancel}>
+        <button type="button" className="btn-outline w-full justify-center" onClick={onCancel}>
           Cancel
         </button>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };
 
 const GoogleG = () => (
-  <svg width="34" height="34" viewBox="0 0 48 48">
+  <svg aria-hidden="true" width="34" height="34" viewBox="0 0 48 48">
     <path
       fill="#FFC107"
       d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.1 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"

@@ -1,6 +1,7 @@
-import React from 'react';
-import { FileRow as FileRowType } from '../../shared/types';
+import type React from 'react';
+import type { FileRow as FileRowType } from '../../shared/types';
 import { getFileTypeInfo } from '../../shared/fileCategory';
+import { formatBytes } from '../../shared/format';
 import { FileTypeIcon } from './FileTypeIcon';
 
 interface FileRowProps {
@@ -11,17 +12,9 @@ interface FileRowProps {
   onContextMenu: (e: React.MouseEvent, file: FileRowType) => void;
 }
 
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
 function formatDate(dateStr: string): string {
   const isUTC = !dateStr.includes('Z') && !dateStr.includes('T');
-  const date = new Date(isUTC ? dateStr.replace(' ', 'T') + 'Z' : dateStr);
+  const date = new Date(isUTC ? `${dateStr.replace(' ', 'T')}Z` : dateStr);
   const options: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true };
   return date.toLocaleDateString('en-US', options);
 }
@@ -48,7 +41,7 @@ export const FileRow: React.FC<FileRowProps> = ({ file, isSelected, isHighlighte
           <span className="font-medium text-ink flex items-center gap-2">
             {file.name}
             {file.is_starred === 1 && (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-400">
+              <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-400">
                 <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
               </svg>
             )}
@@ -56,10 +49,10 @@ export const FileRow: React.FC<FileRowProps> = ({ file, isSelected, isHighlighte
         </div>
       </td>
       <td className="whitespace-nowrap px-3 py-3.5 text-muted">{formatDate(modifiedDate)}</td>
-      <td className="whitespace-nowrap px-3 py-3.5 text-muted">{formatFileSize(file.size_bytes)}</td>
+      <td className="whitespace-nowrap px-3 py-3.5 text-muted">{formatBytes(file.size_bytes)}</td>
       <td className="px-3 py-3.5 text-right">
-        <button className="cursor-pointer rounded border-0 bg-transparent px-2 py-1 text-[18px] text-muted transition-colors duration-100 hover:bg-surface" onClick={(e) => onContextMenu(e, file)}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+        <button type="button" aria-label="More options" className="cursor-pointer rounded border-0 bg-transparent px-2 py-1 text-[18px] text-muted transition-colors duration-100 hover:bg-surface" onClick={(e) => onContextMenu(e, file)}>
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
         </button>
       </td>
     </tr>

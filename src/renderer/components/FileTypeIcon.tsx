@@ -1,5 +1,5 @@
-import React from 'react';
-import { getFileTypeInfo, ExtendedCategory } from '../../shared/fileCategory';
+import type React from 'react';
+import { getFileTypeInfo, type ExtendedCategory } from '../../shared/fileCategory';
 
 const ICON_PATHS: Record<ExtendedCategory, React.ReactNode> = {
   image: (
@@ -95,7 +95,7 @@ interface FileTypeIconProps {
 export const FileTypeIcon: React.FC<FileTypeIconProps> = ({ name, size = 16, className }) => {
   const info = getFileTypeInfo(name);
   return (
-    <svg
+    <svg aria-hidden="true"
       width={size}
       height={size}
       viewBox="0 0 24 24"

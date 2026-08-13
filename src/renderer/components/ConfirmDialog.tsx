@@ -1,4 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import type React from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { motion } from 'motion/react';
 
 interface ConfirmDialogProps {
   title: string;
@@ -30,15 +32,23 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({ title, message, co
   };
 
   return (
-    <div
-      className="fixed inset-0 z-[20000] flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
-      onMouseDown={handleBackdropClick}
-    >
-      <div
+      <motion.div
+        className="fixed inset-0 z-[20000] flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
+        onMouseDown={handleBackdropClick}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.15 }}
+      >
+      <motion.div
         ref={dialogRef}
         className="w-[400px] max-w-[90vw] rounded-xl border border-line bg-panel p-6 shadow-[0_10px_30px_rgba(0,0,0,0.12)]"
         role="alertdialog"
         aria-modal="true"
+        initial={{ opacity: 0, scale: 0.96, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 10 }}
+        transition={{ duration: 0.18, ease: 'easeOut' }}
       >
         <h3 className="mb-4 text-[18px] font-semibold text-ink">{title}</h3>
         <div className="mb-6 text-[13px] leading-relaxed text-muted">{message}</div>
@@ -56,8 +66,8 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({ title, message, co
         )}
 
         <div className="flex justify-end gap-2">
-          <button className="btn-outline" onClick={() => onCancel(dontAskAgain)}>Cancel</button>
-          <button
+          <button type="button" className="btn-outline" onClick={() => onCancel(dontAskAgain)}>Cancel</button>
+          <button type="button"
             ref={confirmRef}
             className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-red-600 px-4 py-2 text-[13px] font-medium text-white transition-colors duration-150 hover:bg-red-700"
             onClick={() => onConfirm(dontAskAgain)}
@@ -65,7 +75,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({ title, message, co
             {confirmLabel}
           </button>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };

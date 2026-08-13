@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import type React from 'react';
+import { useEffect, useState } from 'react';
 import { useToast } from '../components/Toast';
 
 const { ipcRenderer } = window.require('electron');
@@ -13,6 +14,9 @@ export const Settings: React.FC = () => {
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [showSecret, setShowSecret] = useState(false);
+  const [oneDriveClientId, setOneDriveClientId] = useState('');
+  const [oneDriveClientSecret, setOneDriveClientSecret] = useState('');
+  const [showOneDriveSecret, setShowOneDriveSecret] = useState(false);
   const [credsLoaded, setCredsLoaded] = useState(false);
 
   useEffect(() => {
@@ -30,17 +34,36 @@ export const Settings: React.FC = () => {
       setClientSecret(res.clientSecret);
       setCredsLoaded(true);
     }).catch(() => setCredsLoaded(true));
+
+    ipcRenderer.invoke('credentials:get', { provider: 'onedrive' }).then((res: { clientId: string; clientSecret: string }) => {
+      setOneDriveClientId(res.clientId);
+      setOneDriveClientSecret(res.clientSecret);
+      setCredsLoaded(true);
+    }).catch(() => setCredsLoaded(true));
   }, []);
 
   const handleSaveCredentials = async () => {
     try {
-      const res = await ipcRenderer.invoke('credentials:set', { clientId, clientSecret });
+      const res = await ipcRenderer.invoke('credentials:set', { provider: 'google', clientId, clientSecret });
       if (res.error) {
         toastError(res.error);
       } else {
         toastSuccess('Google API credentials saved.');
       }
-    } catch (e: any) {
+    } catch (e) {
+      toastError(String(e));
+    }
+  };
+
+  const handleSaveOneDriveCredentials = async () => {
+    try {
+      const res = await ipcRenderer.invoke('credentials:set', { provider: 'onedrive', clientId: oneDriveClientId, clientSecret: oneDriveClientSecret });
+      if (res.error) {
+        toastError(res.error);
+      } else {
+        toastSuccess('OneDrive API credentials saved.');
+      }
+    } catch (e) {
       toastError(String(e));
     }
   };
@@ -58,7 +81,7 @@ export const Settings: React.FC = () => {
         else if (key === 'autoRenameDuplicates') setAutoRenameDuplicates(prev);
         else setAutoRefreshQuota(prev);
       }
-    } catch (e: any) {
+    } catch (e) {
       toastError(String(e));
       if (key === 'confirmDelete') setConfirmDelete(prev);
       else if (key === 'autoRenameDuplicates') setAutoRenameDuplicates(prev);
@@ -67,7 +90,7 @@ export const Settings: React.FC = () => {
   };
 
   const Toggle = ({ checked, onToggle }: { checked: boolean; onToggle: () => void }) => (
-    <button
+    <button type="button"
       role="switch"
       aria-checked={checked}
       onClick={onToggle}
@@ -116,8 +139,9 @@ export const Settings: React.FC = () => {
           </div>
           <div className="flex flex-col gap-4 p-5">
             <div>
-              <label className="mb-1.5 block text-[12px] font-medium text-muted">Client ID</label>
+              <label htmlFor="google-client-id" className="mb-1.5 block text-[12px] font-medium text-muted">Client ID</label>
               <input
+                id="google-client-id"
                 type="text"
                 value={clientId}
                 onChange={(e) => setClientId(e.target.value)}
@@ -126,9 +150,10 @@ export const Settings: React.FC = () => {
               />
             </div>
             <div>
-              <label className="mb-1.5 block text-[12px] font-medium text-muted">Client Secret</label>
+              <label htmlFor="google-client-secret" className="mb-1.5 block text-[12px] font-medium text-muted">Client Secret</label>
               <div className="flex items-center rounded-lg border border-line bg-surface transition-colors duration-150 focus-within:border-accent focus-within:shadow-[0_0_0_3px_rgba(51,102,255,0.08)]">
                 <input
+                  id="google-client-secret"
                   type={showSecret ? 'text' : 'password'}
                   value={clientSecret}
                   onChange={(e) => setClientSecret(e.target.value)}
@@ -142,17 +167,73 @@ export const Settings: React.FC = () => {
                   aria-label={showSecret ? 'Hide secret' : 'Show secret'}
                 >
                   {showSecret ? (
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg>
+                    <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg>
                   ) : (
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                    <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
                   )}
                 </button>
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <button
+              <button type="button"
                 className="btn-primary px-4 py-1.5 text-[12px]"
                 onClick={handleSaveCredentials}
+                disabled={!credsLoaded}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-line bg-panel">
+          <div className="flex min-w-0 items-center gap-1.5 border-b border-line p-5 pb-4">
+            <div className="text-[14px] font-semibold text-ink">OneDrive API</div>
+            <InfoTip
+              text="Required to connect OneDrive accounts as storage. Create an app in Microsoft Entra (Azure) and paste the client (application) ID and secret here."
+            />
+          </div>
+          <div className="flex flex-col gap-4 p-5">
+            <div>
+              <label htmlFor="onedrive-client-id" className="mb-1.5 block text-[12px] font-medium text-muted">Client ID</label>
+              <input
+                id="onedrive-client-id"
+                type="text"
+                value={oneDriveClientId}
+                onChange={(e) => setOneDriveClientId(e.target.value)}
+                placeholder="00000000-0000-0000-0000-000000000000"
+                className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13px] text-ink transition-colors duration-150 placeholder:text-muted focus:border-accent focus:shadow-[0_0_0_3px_rgba(51,102,255,0.08)] focus:outline-none"
+              />
+            </div>
+            <div>
+              <label htmlFor="onedrive-client-secret" className="mb-1.5 block text-[12px] font-medium text-muted">Client Secret</label>
+              <div className="flex items-center rounded-lg border border-line bg-surface transition-colors duration-150 focus-within:border-accent focus-within:shadow-[0_0_0_3px_rgba(51,102,255,0.08)]">
+                <input
+                  id="onedrive-client-secret"
+                  type={showOneDriveSecret ? 'text' : 'password'}
+                  value={oneDriveClientSecret}
+                  onChange={(e) => setOneDriveClientSecret(e.target.value)}
+                  placeholder="~48-char secret"
+                  className="w-full min-w-0 bg-transparent px-3 py-2 text-[13px] text-ink placeholder:text-muted focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowOneDriveSecret(v => !v)}
+                  className="flex h-full cursor-pointer items-center px-3 text-muted transition-colors duration-100 hover:text-ink"
+                  aria-label={showOneDriveSecret ? 'Hide secret' : 'Show secret'}
+                >
+                  {showOneDriveSecret ? (
+                    <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg>
+                  ) : (
+                    <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                  )}
+                </button>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <button type="button"
+                className="btn-primary px-4 py-1.5 text-[12px]"
+                onClick={handleSaveOneDriveCredentials}
                 disabled={!credsLoaded}
               >
                 Save

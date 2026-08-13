@@ -1,4 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import type React from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { motion } from 'motion/react';
 
 interface RenameModalProps {
   title: string;
@@ -33,11 +35,21 @@ export const RenameModal: React.FC<RenameModalProps> = ({ title, initialName, su
   }, [onConfirm, onCancel, suffix]);
 
   return (
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 backdrop-blur-[2px]">
-      <div
+    <motion.div
+      className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.15 }}
+    >
+      <motion.div
         role="dialog"
         aria-modal="true"
         className="w-[400px] max-w-[90vw] rounded-xl border border-line bg-panel p-6 shadow-[0_10px_30px_rgba(0,0,0,0.1)]"
+        initial={{ opacity: 0, scale: 0.96, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 10 }}
+        transition={{ duration: 0.18, ease: 'easeOut' }}
       >
         <h3 className="mb-4 text-[18px] font-semibold text-ink">{title}</h3>
         <div className="mb-6 flex items-center rounded-lg border border-line bg-panel px-3 py-2 transition-colors duration-150 focus-within:border-accent focus-within:shadow-[0_0_0_3px_rgba(51,102,255,0.08)]">
@@ -55,8 +67,8 @@ export const RenameModal: React.FC<RenameModalProps> = ({ title, initialName, su
         </div>
         {error && <div className="-mt-4 mb-4 text-[12px] text-red-600">{error}</div>}
         <div className="flex justify-end gap-2">
-          <button className="btn-outline" onClick={onCancel}>Cancel</button>
-          <button
+          <button type="button" className="btn-outline" onClick={onCancel}>Cancel</button>
+          <button type="button"
             className="btn-primary"
             disabled={name.trim() === ''}
             onClick={() => onConfirm(fullName())}
@@ -64,7 +76,7 @@ export const RenameModal: React.FC<RenameModalProps> = ({ title, initialName, su
             {confirmLabel}
           </button>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };

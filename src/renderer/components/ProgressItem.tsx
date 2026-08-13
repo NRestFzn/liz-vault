@@ -1,4 +1,4 @@
-import React from 'react';
+import type React from 'react';
 
 interface ProgressItemProps {
   fileName: string;
@@ -17,7 +17,7 @@ export const ProgressItem: React.FC<ProgressItemProps> = ({ fileName, progress, 
         <span className="max-w-[240px] truncate text-[13px] font-medium">
           {type === 'upload' ? '↑' : '↓'} {fileName}
         </span>
-        <button className="cursor-pointer border-0 bg-transparent p-0.5 text-[16px] text-muted" onClick={onCancel}>×</button>
+        <button type="button" className="cursor-pointer border-0 bg-transparent p-0.5 text-[16px] text-muted" onClick={onCancel}>×</button>
       </div>
       <div className="h-1 overflow-hidden rounded-[2px] bg-line">
         <div className={`h-full rounded-[2px] transition-[width] duration-200 ease-in-out ${isComplete ? 'bg-audio' : 'bg-accent'}`} style={{ width: `${progress}%` }} />

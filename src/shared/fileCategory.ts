@@ -111,7 +111,7 @@ function getExtension(name: string): string {
 
 export function splitFileName(name: string): { base: string; ext: string } {
   const m = name.match(/^(.*)(\.[^.\\/]*)$/);
-  if (!m || !m[1]) return { base: name, ext: '' };
+  if (!m?.[1]) return { base: name, ext: '' };
   return { base: m[1], ext: m[2] };
 }
 

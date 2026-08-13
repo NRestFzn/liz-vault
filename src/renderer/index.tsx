@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Sidebar } from './components/Sidebar';
+import { Sidebar, type AppView } from './components/Sidebar';
 import { TransferQueue } from './components/TransferQueue';
 import { GlobalSearch } from './components/GlobalSearch';
 import { FileDetailModal } from './components/FileDetailModal';
@@ -9,12 +9,13 @@ import { QuotaTracker } from './pages/QuotaTracker';
 import { Starred } from './pages/Starred';
 import { Settings } from './pages/Settings';
 import { ToastProvider } from './components/Toast';
-import { SearchResultRow, UserRow } from '../shared/types';
+import { AnimatePresence } from 'motion/react';
+import type { SearchResultRow, UserRow } from '../shared/types';
 
 const { ipcRenderer } = window.require('electron');
 
 const App = () => {
-  const [activeView, setActiveView] = useState<'files' | 'quota' | 'shared' | 'starred' | 'settings'>('files');
+  const [activeView, setActiveView] = useState<AppView>('files');
   const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => {
     return (localStorage.getItem('lizvault_viewMode') as 'list' | 'grid') || 'list';
   });
@@ -57,7 +58,7 @@ const App = () => {
       setUser(res.user);
     });
 
-    const onUserChanged = (_: any, data: { user: UserRow | null }) => {
+    const onUserChanged = (_event: unknown, data: { user: UserRow | null }) => {
       setUser(data.user);
     };
     ipcRenderer.on('user:changed', onUserChanged);
@@ -79,7 +80,6 @@ const App = () => {
           <div className="no-drag flex-1 overflow-y-auto px-7 pb-7 pt-5">
             {activeView === 'files' && <FileExplorer viewMode={viewMode} onViewModeChange={handleViewModeChange} folderId={folderState.id} folderName={folderState.name} onFolderChange={handleFolderChange} highlightFileId={highlightFileId} onHighlightHandled={handleHighlightHandled} />}
             {activeView === 'quota' && <QuotaTracker />}
-            {activeView === 'shared' && <div>Shared With Me (Not Implemented)</div>}
             {activeView === 'starred' && <Starred viewMode={viewMode} onViewModeChange={handleViewModeChange} />}
             {activeView === 'settings' && <Settings />}
           </div>
@@ -97,13 +97,15 @@ const App = () => {
         )}
       </main>
 
-      {detailFile && (
-        <FileDetailModal
-          file={detailFile}
-          onClose={() => setDetailFile(null)}
-          onOpenLocation={handleDetailOpenLocation}
-        />
-      )}
+      <AnimatePresence>
+        {detailFile && (
+          <FileDetailModal
+            file={detailFile}
+            onClose={() => setDetailFile(null)}
+            onOpenLocation={handleDetailOpenLocation}
+          />
+        )}
+      </AnimatePresence>
     </>
   );
 };

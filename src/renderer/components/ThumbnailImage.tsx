@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { FileRow } from '../../shared/types';
+import type React from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { FileRow } from '../../shared/types';
 import { isBrowserDecodableImage } from '../../shared/fileCategory';
 import { FileTypeIcon } from './FileTypeIcon';
 
@@ -66,7 +67,7 @@ export const ThumbnailImage: React.FC<ThumbnailImageProps> = ({ file, iconSize =
     <div ref={containerRef} className="flex h-full w-full items-center justify-center overflow-hidden">
       {showImage ? (
         <img
-          src={src!}
+          src={src ?? undefined}
           alt={file.name}
           draggable={false}
           className={imgClassName ?? 'h-full w-full object-cover'}

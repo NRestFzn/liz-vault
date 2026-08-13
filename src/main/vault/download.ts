@@ -1,5 +1,5 @@
-import fs from 'fs';
-import { BrowserWindow } from 'electron';
+import fs from 'node:fs';
+import type { BrowserWindow } from 'electron';
 import { getFile, getChunksForFile, getAccountByEmail, updateFileStatus } from '../db/queries';
 import { getDriveClient } from '../google/auth';
 
@@ -51,7 +51,7 @@ export async function downloadFile(userId: number, mainWindow: BrowserWindow, fi
           .on('end', () => {
             resolve();
           })
-          .on('error', (err: any) => {
+          .on('error', (err: Error) => {
             reject(err);
           })
           .pipe(writeStream, { end: false });
@@ -64,7 +64,7 @@ export async function downloadFile(userId: number, mainWindow: BrowserWindow, fi
     updateFileStatus(fileId, userId, 'ready');
     mainWindow.webContents.send('download:complete', { fileId, savePath });
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('Download error:', error);
     writeStream.end();
     updateFileStatus(fileId, userId, 'error');

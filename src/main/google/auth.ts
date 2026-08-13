@@ -1,13 +1,15 @@
 import { google } from 'googleapis';
+import type { drive_v3 } from 'googleapis';
 import { shell } from 'electron';
-import http from 'http';
+import { errorMessage } from '../errors';
+import http from 'node:http';
 import { addAccount, addUser, getAccount, getGoogleCredentials, seedManifestForUser } from '../db/queries';
-import { AccountRow, UserRow } from '../../shared/types';
+import type { AccountRow, UserRow } from '../../shared/types';
 
 const VAULT_FOLDER_NAME = 'LizVault';
-const STORAGE_FOLDER_NAME = 'LizVault_Data';
-const LEGACY_FOLDER_NAME = STORAGE_FOLDER_NAME;
-const LEGACY_STORAGE_NAME = VAULT_FOLDER_NAME;
+const STORAGE_FOLDER_NAME = 'LizVault';
+const LEGACY_FOLDER_NAME = 'LizVault_Data';
+const LEGACY_STORAGE_NAME = 'LizVault_Data';
 
 const SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
@@ -222,18 +224,22 @@ export function getDriveClient(refreshToken: string) {
   return google.drive({ version: 'v3', auth: client });
 }
 
-export async function findOrCreateFolder(drive: any, preferredName: string, legacyName: string): Promise<{ id: string; created: boolean }> {
+export async function findOrCreateFolder(drive: drive_v3.Drive, preferredName: string, legacyName: string): Promise<{ id: string; created: boolean }> {
   const query = `(name='${preferredName}' or name='${legacyName}') and mimeType='application/vnd.google-apps.folder' and trashed=false`;
   const existing = await drive.files.list({ q: query, spaces: 'drive', fields: 'files(id, name)' });
   if (existing.data.files && existing.data.files.length > 0) {
-    const preferred = existing.data.files.find((f: any) => f.name === preferredName) ?? existing.data.files[0];
-    return { id: preferred.id!, created: false };
+    const preferred = existing.data.files.find(f => f.name === preferredName) ?? existing.data.files[0];
+    const id = preferred.id;
+    if (!id) throw new Error('Drive did not return an id for the vault folder.');
+    return { id, created: false };
   }
   const folder = await drive.files.create({
     requestBody: { name: preferredName, mimeType: 'application/vnd.google-apps.folder' },
     fields: 'id',
   });
-  return { id: folder.data.id!, created: true };
+  const id = folder.data.id;
+  if (!id) throw new Error('Drive did not return an id for the vault folder.');
+  return { id, created: true };
 }
 
 export async function testAccountToken(userId: number, accountId: number): Promise<{ ok: boolean; expired?: boolean; error?: string }> {
@@ -243,8 +249,8 @@ export async function testAccountToken(userId: number, accountId: number): Promi
     const drive = getDriveClient(account.refresh_token);
     await drive.about.get({ fields: 'user' });
     return { ok: true };
-  } catch (e: any) {
-    const msg = String(e?.message || e);
+  } catch (e) {
+    const msg = errorMessage(e);
     if (/unauthorized_client|invalid_grant|invalid_client/i.test(msg)) {
       return { ok: false, expired: true, error: 'Your Google login has expired or was revoked. Re-login to continue.' };
     }
@@ -372,8 +378,8 @@ async function completeLoginOAuth(code: string, redirectUri: string): Promise<Lo
     rootFolderId = id;
     folderCreated = created;
     console.log(`[Login] ${created ? 'Created' : 'Found existing'} ${VAULT_FOLDER_NAME} folder:`, rootFolderId);
-  } catch (e: any) {
-    console.warn('[Login] Failed to ensure vault folder:', e?.message || e);
+  } catch (e) {
+    console.warn('[Login] Failed to ensure vault folder:', errorMessage(e));
   }
 
   const user = addUser({ email, refresh_token: tokens.refresh_token, display_name: displayName, avatar_url: avatarUrl, root_folder_id: rootFolderId });

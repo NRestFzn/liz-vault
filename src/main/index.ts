@@ -1,5 +1,5 @@
 import { app, BrowserWindow, Menu } from 'electron';
-import path from 'path';
+import path from 'node:path';
 import { initConfig, initManifest, ensureManifestLoaded, flushNow, getActiveUserId } from './db/queries';
 import { registerIpcHandlers } from './ipc';
 

@@ -1,8 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AccountRow } from '../../shared/types';
+import type React from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { AccountProvider, AccountRow } from '../../shared/types';
 import { OAuthWaitingModal } from '../components/OAuthWaitingModal';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useToast } from '../components/Toast';
+import { AnimatePresence } from 'motion/react';
 
 const { ipcRenderer } = window.require('electron');
 
@@ -19,7 +21,7 @@ export const QuotaTracker: React.FC = () => {
 
   useEffect(() => {
     return () => {
-      Object.values(flashTimers.current).forEach(t => clearTimeout(t));
+      Object.values(flashTimers.current).forEach(t => { clearTimeout(t); });
     };
   }, []);
 
@@ -53,7 +55,7 @@ export const QuotaTracker: React.FC = () => {
     } finally {
       setTestingIds(prev => prev.filter(x => x !== id));
     }
-  }, []);
+  }, [toastError]);
 
   const loadAndTest = useCallback(async () => {
     const res = await ipcRenderer.invoke('accounts:list');
@@ -95,7 +97,7 @@ export const QuotaTracker: React.FC = () => {
     if (autoRefresh) loadAndTest();
     else loadAccounts();
 
-    const onAccountAdded = (_: any, data: { account: AccountRow }) => {
+    const onAccountAdded = (_event: unknown, data: { account: AccountRow }) => {
       setAccounts(prev => {
         const idx = prev.findIndex(a => a.email === data.account.email);
         if (idx >= 0) {
@@ -121,7 +123,7 @@ export const QuotaTracker: React.FC = () => {
     if (!settingsLoaded || !autoRefresh) return;
     const interval = setInterval(() => { loadAccounts().catch(() => {}); }, 30000);
     return () => clearInterval(interval);
-  }, [autoRefresh, settingsLoaded]);
+  }, [autoRefresh, settingsLoaded, loadAccounts]);
 
   const handleConnectDrive = async () => {
     setConnecting(true);
@@ -162,7 +164,7 @@ export const QuotaTracker: React.FC = () => {
         setAccounts(prev => prev.filter(a => a.id !== removeTarget));
         if (flashTimers.current[removeTarget]) clearTimeout(flashTimers.current[removeTarget]);
       }
-    } catch (e: any) {
+    } catch (e) {
       toastError(String(e));
     } finally {
       setRemoveTarget(null);
@@ -180,12 +182,12 @@ export const QuotaTracker: React.FC = () => {
         </div>
         <div className="flex flex-col items-end gap-2">
           <div className="flex flex-wrap items-center justify-end gap-2">
-          <button className="btn-outline px-3.5 py-1.5 text-[12px]" onClick={loadAndTest}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          <button type="button" className="btn-outline px-3.5 py-1.5 text-[12px]" onClick={loadAndTest}>
+            <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
             Refresh
           </button>
-          <button className="btn-primary" onClick={handleConnectDrive}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <button type="button" className="btn-primary" onClick={handleConnectDrive}>
+            <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             Connect Drive
           </button>
           </div>
@@ -209,6 +211,7 @@ export const QuotaTracker: React.FC = () => {
           return (
             <AccountCard
               key={acc.id}
+              provider={acc.provider}
               email={acc.email}
               used={u / (1024 ** 3)}
               total={t / (1024 ** 3)}
@@ -230,28 +233,31 @@ export const QuotaTracker: React.FC = () => {
         )}
       </div>
 
-      {connecting && (
-        <OAuthWaitingModal
-          title="Connect Google Drive"
-          onCancel={handleCancelConnect}
-        />
-      )}
+      <AnimatePresence>
+        {connecting && (
+          <OAuthWaitingModal
+            title="Connect Google Drive"
+            onCancel={handleCancelConnect}
+          />
+        )}
+      </AnimatePresence>
 
-      {}
-      {removeTarget !== null && (
-        <ConfirmDialog
-          title="Remove Account"
-          message={
-            <>
-              Are you sure you want to remove <strong>{accounts.find(a => a.id === removeTarget)?.email}</strong>?
-              Files using chunks in this account will be corrupted if you haven't migrated them.
-            </>
-          }
-          confirmLabel="Remove"
-          onConfirm={handleConfirmRemove}
-          onCancel={() => setRemoveTarget(null)}
-        />
-      )}
+      <AnimatePresence>
+        {removeTarget !== null && (
+          <ConfirmDialog
+            title="Remove Account"
+            message={
+              <>
+                Are you sure you want to remove <strong>{accounts.find(a => a.id === removeTarget)?.email}</strong>?
+                Files using chunks in this account will be corrupted if you haven't migrated them.
+              </>
+            }
+            confirmLabel="Remove"
+            onConfirm={handleConfirmRemove}
+            onCancel={() => setRemoveTarget(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };
@@ -260,6 +266,28 @@ function formatGB(bytes: number): string {
   return `${(bytes / (1024 ** 3)).toFixed(2)} GB`;
 }
 
+const PROVIDER_META: Record<AccountProvider, { name: string; logo: React.ReactNode }> = {
+  google: {
+    name: 'Google Drive',
+    logo: (
+      <svg aria-hidden="true" width="15" height="13" viewBox="0 0 87.3 78">
+        <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3L27.5 52h.07l9.6-16.65L22.75 14.7l-5.75 9.95-10.4 18a19.9 19.9 0 0 0 0 24.2Z" fill="#0066da"/>
+        <path d="M73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.7-13.35a19.9 19.9 0 0 0 0-24.2l-13.05-22.6A10.2 10.2 0 0 0 64.9 6.4H34.45a10.2 10.2 0 0 0-8.4 4.45l-3.3 5.85 9.9 17.15L51.6 52h8.3l13.65.05Z" fill="#00ac47"/>
+        <path d="M34.45 6.4 27.05 6.4a10.2 10.2 0 0 0-8.4 4.45l-8.4 14.55L22.75 14.7l11.7 20.3h5.6l9.6-16.65L43.7 6.4h-9.25Z" fill="#ea4335"/>
+        <path d="M30.15 52 27.5 52l-14.2 24.8c1.45.8 3.05 1.2 4.7 1.2h40.9a10.2 10.2 0 0 0 8.4-4.45l3.85-6.65-18.4.05h-13.6Z" fill="#00832d"/>
+      </svg>
+    ),
+  },
+  onedrive: {
+    name: 'OneDrive',
+    logo: (
+      <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24">
+        <path fill="#0078d4" d="M21.446 14.86a3.33 3.33 0 0 0-.063-.024 4.118 4.118 0 0 0 .012-1.648 4.205 4.205 0 0 0-8.06-.865 3.75 3.75 0 0 0-.366.018 3.645 3.645 0 0 0-3.45 2.62 2.784 2.784 0 0 0-.114.003 3.018 3.018 0 0 0 .074 6.03h11.484a3.52 3.52 0 0 0 .483-6.975zM8.438 11.09a5.186 5.186 0 0 1 5.108-4.32c.167 0 .332.01.494.026a4.603 4.603 0 0 1 4.14-2.66c.18 0 .356.012.53.032a5.947 5.947 0 0 0-10.272 6.922zM6.214 6.48A3.343 3.343 0 0 1 8.74 3.587c.122 0 .245.008.364.02a2.966 2.966 0 0 1 2.656-1.71c.113 0 .228.008.34.02a3.833 3.833 0 0 0-3.886 4.563z"/>
+      </svg>
+    ),
+  },
+};
+
 const StatCard = ({ title, value }: { title: string; value: string }) => (
   <div className="rounded-[10px] border border-line bg-panel p-[18px] transition-shadow duration-200 hover:shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
     <div className="mb-2 text-[11px] uppercase tracking-[0.04em] text-muted">{title}</div>
@@ -267,33 +295,35 @@ const StatCard = ({ title, value }: { title: string; value: string }) => (
   </div>
 );
 
-const AccountCard = ({ email, used, total, percent, color, expired, testing, okFlash, onTest, onRelogin, onRemove }: {
-  email: string; used: number; total: number; percent: number; color: string;
+const AccountCard = ({ provider, email, used, total, percent, color, expired, testing, okFlash, onTest, onRelogin, onRemove }: {
+  provider: AccountProvider; email: string; used: number; total: number; percent: number; color: string;
   expired: boolean; testing: boolean; okFlash: boolean;
   onTest: () => void; onRelogin: () => void; onRemove: () => void;
-}) => (
+}) => {
+  const meta = PROVIDER_META[provider];
+  return (
   <div className={`rounded-[10px] border bg-panel p-[18px] transition-shadow duration-200 hover:shadow-[0_2px_8px_rgba(0,0,0,0.04)] ${expired ? 'border-red-200' : 'border-line'}`}>
     <div className="mb-3.5 flex items-start justify-between gap-2">
       <div className="flex min-w-0 items-center gap-2">
-        <div className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-white ${expired ? 'bg-red-400' : 'bg-accent'}`}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <div className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md border ${expired ? 'border-red-200 bg-red-50' : 'border-line bg-white'}`}>
+          {meta.logo}
         </div>          <div className="min-w-0">
-            <div className="text-[13px] font-semibold leading-tight">Google Drive</div>
+            <div className="text-[13px] font-semibold leading-tight">{meta.name}</div>
             <div className="truncate text-[11px] text-muted">{email}</div>
           </div>
       </div>
       <div className="flex shrink-0 gap-1">
         {expired ? (
-          <button
+          <button type="button"
             className="inline-flex h-[26px] items-center gap-1 rounded-md bg-red-500 px-2.5 text-[11px] font-medium text-white transition-colors duration-150 hover:bg-red-600"
             onClick={onRelogin}
             title="Re-login to this Google account"
           >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+            <svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
             Re-login
           </button>
         ) : (
-          <button
+          <button type="button"
             className="inline-flex h-[26px] w-[26px] items-center justify-center rounded-md border border-line bg-transparent text-muted transition-all duration-150 hover:border-accent hover:text-accent"
             onClick={onTest}
             title={testing ? 'Testing token…' : 'Test token / refresh'}
@@ -301,12 +331,12 @@ const AccountCard = ({ email, used, total, percent, color, expired, testing, okF
             {testing ? (
               <span className="h-3 w-3 animate-spin rounded-full border-[1.5px] border-line border-t-accent" />
             ) : (
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+              <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
             )}
           </button>
         )}
-        <button className="inline-flex h-[26px] w-[26px] items-center justify-center rounded-md border border-line bg-transparent text-video transition-all duration-150 hover:border-video hover:text-video" onClick={onRemove} title="Remove">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+        <button type="button" className="inline-flex h-[26px] w-[26px] items-center justify-center rounded-md border border-line bg-transparent text-video transition-all duration-150 hover:border-video hover:text-video" onClick={onRemove} title="Remove">
+          <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
         </button>
       </div>
     </div>
@@ -325,7 +355,7 @@ const AccountCard = ({ email, used, total, percent, color, expired, testing, okF
       <>
         <div className="mb-1.5 flex items-center justify-between text-[11px]">
           <span className="flex items-center gap-1.5 text-muted">
-            <svg style={{ color }} width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4" fill="currentColor"/></svg>
+            <svg aria-hidden="true" style={{ color }} width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4" fill="currentColor"/></svg>
             storage
           </span>
           <span className="font-semibold text-ink">
@@ -344,4 +374,5 @@ const AccountCard = ({ email, used, total, percent, color, expired, testing, okF
       </>
     )}
   </div>
-);
+  );
+};

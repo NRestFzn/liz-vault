@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import type React from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ProgressItem } from './ProgressItem';
 import { useToast } from './Toast';
 
@@ -25,7 +26,7 @@ export const TransferQueue: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const onUploadProgress = (_: any, data: { fileId: number, fileName: string, bytesUploaded: number, totalBytes: number }) => {
+    const onUploadProgress = (_event: unknown, data: { fileId: number, fileName: string, bytesUploaded: number, totalBytes: number }) => {
       const progress = data.totalBytes > 0 ? (data.bytesUploaded / data.totalBytes) * 100 : 0;
       setTransfers(prev => ({
         ...prev,
@@ -33,7 +34,7 @@ export const TransferQueue: React.FC = () => {
       }));
     };
 
-    const onUploadComplete = (_: any, data: { fileId: number }) => {
+    const onUploadComplete = (_event: unknown, data: { fileId: number }) => {
       setTransfers(prev => {
         const next = { ...prev };
         if (next[`upload-${data.fileId}`]) next[`upload-${data.fileId}`].progress = 100;
@@ -42,12 +43,12 @@ export const TransferQueue: React.FC = () => {
       setTimeout(() => removeTransfer(`upload-${data.fileId}`), 3000);
     };
 
-    const onUploadError = (_: any, data: { fileId: number, error: string }) => {
+    const onUploadError = (_event: unknown, data: { fileId: number, error: string }) => {
       toastError(`Upload failed: ${data.error}`);
       removeTransfer(`upload-${data.fileId}`);
     };
 
-    const onDownloadProgress = (_: any, data: { fileId: number, fileName: string, bytesDownloaded: number, totalBytes: number }) => {
+    const onDownloadProgress = (_event: unknown, data: { fileId: number, fileName: string, bytesDownloaded: number, totalBytes: number }) => {
       const progress = data.totalBytes > 0 ? (data.bytesDownloaded / data.totalBytes) * 100 : 0;
       setTransfers(prev => ({
         ...prev,
@@ -55,7 +56,7 @@ export const TransferQueue: React.FC = () => {
       }));
     };
 
-    const onDownloadComplete = (_: any, data: { fileId: number }) => {
+    const onDownloadComplete = (_event: unknown, data: { fileId: number }) => {
       setTransfers(prev => {
         const next = { ...prev };
         if (next[`download-${data.fileId}`]) next[`download-${data.fileId}`].progress = 100;
@@ -64,7 +65,7 @@ export const TransferQueue: React.FC = () => {
       setTimeout(() => removeTransfer(`download-${data.fileId}`), 3000);
     };
 
-    const onDownloadError = (_: any, data: { fileId: number, error: string }) => {
+    const onDownloadError = (_event: unknown, data: { fileId: number, error: string }) => {
       toastError(`Download failed: ${data.error}`);
       removeTransfer(`download-${data.fileId}`);
     };

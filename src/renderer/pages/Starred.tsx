@@ -1,5 +1,6 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
-import { FileRow as FileRowType } from '../../shared/types';
+import type React from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
+import type { FileRow as FileRowType } from '../../shared/types';
 import { FileRow } from '../components/FileRow';
 import { FolderRow } from '../components/FolderRow';
 import { FolderCard } from '../components/FolderCard';
@@ -9,6 +10,7 @@ import { RenameModal } from '../components/RenameModal';
 import { ThumbnailImage } from '../components/ThumbnailImage';
 import { FileTypeIcon } from '../components/FileTypeIcon';
 import { TruncatedLabel } from '../components/TruncatedLabel';
+import { AnimatePresence } from 'motion/react';
 import { splitFileName } from '../../shared/fileCategory';
 
 const FOLDER_CARD_COLORS: Array<'orange' | 'green' | 'blue'> = ['orange', 'green', 'blue'];
@@ -16,7 +18,7 @@ const FOLDER_CARD_COLORS: Array<'orange' | 'green' | 'blue'> = ['orange', 'green
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '';
   const isUTC = !dateStr.includes('Z') && !dateStr.includes('T');
-  const date = new Date(isUTC ? dateStr.replace(' ', 'T') + 'Z' : dateStr);
+  const date = new Date(isUTC ? `${dateStr.replace(' ', 'T')}Z` : dateStr);
   return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
@@ -48,17 +50,17 @@ export const Starred: React.FC<StarredProps> = ({ viewMode, onViewModeChange }) 
   useEffect(() => {
     loadFiles();
 
-    const onDeleted = (_: any, data: { fileId: number }) => {
+    const onDeleted = (_event: unknown, data: { fileId: number }) => {
       setFiles(prev => prev.filter(f => f.id !== data.fileId));
     };
-    const onStarred = (_: any, data: { file: FileRowType }) => {
+    const onStarred = (_event: unknown, data: { file: FileRowType }) => {
       setFiles(prev =>
         data.file.is_starred === 1
           ? prev.some(f => f.id === data.file.id) ? prev : [data.file, ...prev]
           : prev.filter(f => f.id !== data.file.id)
       );
     };
-    const onRenamed = (_: any, data: { file: FileRowType }) => {
+    const onRenamed = (_event: unknown, data: { file: FileRowType }) => {
       setFiles(prev => prev.map(f => (f.id === data.file.id ? data.file : f)));
     };
 
@@ -107,11 +109,11 @@ export const Starred: React.FC<StarredProps> = ({ viewMode, onViewModeChange }) 
   const fileItems = files.filter(f => f.is_folder === 0);
 
   const filteredAndSortedFiles = useMemo(() => {
-    let result = fileItems;
+    const result = fileItems;
 
     return [...result].sort((a, b) => {
-      let aVal: any = a[sortField];
-      let bVal: any = b[sortField];
+      let aVal = a[sortField];
+      let bVal = b[sortField];
 
       if (sortField === 'created_at') {
         aVal = a.updated_at || a.created_at;
@@ -221,9 +223,9 @@ export const Starred: React.FC<StarredProps> = ({ viewMode, onViewModeChange }) 
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-4">
             {filteredAndSortedFiles.map(file => (
-              <div
+              <button type="button"
                 key={file.id}
-                className={`group relative flex cursor-pointer flex-col rounded-xl border transition-all duration-200 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] ${
+                className={`group relative flex cursor-pointer flex-col rounded-xl border p-0 text-left transition-all duration-200 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] ${
                   selectedFiles.has(file.id) ? 'border-accent bg-accent-soft' : 'border-line bg-panel hover:border-[#d1d5db]'
                 }`}
                 onClick={(e) => {
@@ -249,13 +251,13 @@ export const Starred: React.FC<StarredProps> = ({ viewMode, onViewModeChange }) 
                   </div>
                   <div className="flex flex-shrink-0 items-center gap-1.5 pl-2">
                     {file.is_starred === 1 && (
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-400">
+                      <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-400">
                         <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
                       </svg>
                     )}
                   </div>
                 </div>
-              </div>
+              </button>
             ))}
             {folders.length === 0 && filteredAndSortedFiles.length === 0 && (
               <div className="col-span-full p-12 text-center text-[14px] text-muted">No starred items yet. Right-click a file or folder and choose "Star".</div>
@@ -263,35 +265,39 @@ export const Starred: React.FC<StarredProps> = ({ viewMode, onViewModeChange }) 
           </div>
         )}
       </div>
-      {contextMenu && (
-        <ContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          file={contextMenu.file}
-          selectedFiles={selectedFiles.has(contextMenu.file.id) ? filteredAndSortedFiles.filter(f => selectedFiles.has(f.id)) : undefined}
-          onRename={(f) => { setRenameTarget(f); setRenameError(null); }}
-          onClose={() => setContextMenu(null)}
-        />
-      )}
-      {renameTarget && (
-        <RenameModal
-          title={renameTarget.is_folder === 1 ? 'Rename Folder' : 'Rename File'}
-          initialName={renameTarget.is_folder === 1 ? renameTarget.name : splitFileName(renameTarget.name).base}
-          suffix={renameTarget.is_folder === 1 ? '' : splitFileName(renameTarget.name).ext}
-          error={renameError}
-          onConfirm={async (newName) => {
-            const res = await ipcRenderer.invoke('file:rename', { fileId: renameTarget.id, newName });
-            if (res?.error) {
-              const kind = renameTarget.is_folder === 1 ? 'folder' : 'file';
-              setRenameError(res.duplicate ? `A ${kind} named “${newName}” already exists here.` : res.error);
-              return;
-            }
-            setRenameTarget(null);
-            setRenameError(null);
-          }}
-          onCancel={() => { setRenameTarget(null); setRenameError(null); }}
-        />
-      )}
+      <AnimatePresence>
+        {contextMenu && (
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            file={contextMenu.file}
+            selectedFiles={selectedFiles.has(contextMenu.file.id) ? filteredAndSortedFiles.filter(f => selectedFiles.has(f.id)) : undefined}
+            onRename={(f) => { setRenameTarget(f); setRenameError(null); }}
+            onClose={() => setContextMenu(null)}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {renameTarget && (
+          <RenameModal
+            title={renameTarget.is_folder === 1 ? 'Rename Folder' : 'Rename File'}
+            initialName={renameTarget.is_folder === 1 ? renameTarget.name : splitFileName(renameTarget.name).base}
+            suffix={renameTarget.is_folder === 1 ? '' : splitFileName(renameTarget.name).ext}
+            error={renameError}
+            onConfirm={async (newName) => {
+              const res = await ipcRenderer.invoke('file:rename', { fileId: renameTarget.id, newName });
+              if (res?.error) {
+                const kind = renameTarget.is_folder === 1 ? 'folder' : 'file';
+                setRenameError(res.duplicate ? `A ${kind} named “${newName}” already exists here.` : res.error);
+                return;
+              }
+              setRenameTarget(null);
+              setRenameError(null);
+            }}
+            onCancel={() => { setRenameTarget(null); setRenameError(null); }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };
