@@ -114,8 +114,8 @@ const BACKENDS: Record<AccountProvider, Backend> = {
     listFolderFiles(account) {
       return koofrListChildren(account.email, account.refresh_token, account.root_folder_id ?? '', KOOFR_FOLDER_PATH);
     },
-    ensureStorageFolder(account, preferredName, legacyName) {
-      return koofrEnsureFolder(account.email, account.refresh_token, preferredName, legacyName);
+    ensureStorageFolder(account, preferredName) {
+      return koofrEnsureFolder(account.email, account.refresh_token, preferredName);
     },
     testConnection(account) {
       return koofrTestConnection(account.email, account.refresh_token);

@@ -117,12 +117,21 @@ export async function dropboxTestConnection(refreshToken: string): Promise<void>
 }
 
 export async function dropboxListChildren(refreshToken: string, folderPath: string): Promise<{ id: string; name: string }[]> {
-  const data = await apiJson(refreshToken, '/files/list_folder', { path: folderPath, limit: 2000 });
-  const entries = (data.entries as Array<{ '.tag'?: string; id?: unknown; name?: unknown }> | undefined) ?? [];
-  return entries
-    .filter(e => e['.tag'] === 'file')
-    .map(e => ({ id: e.id ? String(e.id) : '', name: e.name ? String(e.name) : '' }))
-    .filter(e => e.id);
+  const files: { id: string; name: string }[] = [];
+  let cursor: string | undefined;
+  do {
+    const body = cursor ? { cursor } : { path: folderPath, limit: 2000 };
+    const data = await apiJson(refreshToken, cursor ? '/files/list_folder/continue' : '/files/list_folder', body);
+    const entries = (data.entries as Array<{ '.tag'?: string; id?: unknown; name?: unknown }> | undefined) ?? [];
+    for (const e of entries) {
+      if (e['.tag'] === 'file') {
+        const id = e.id ? String(e.id) : '';
+        if (id) files.push({ id, name: e.name ? String(e.name) : '' });
+      }
+    }
+    cursor = data.has_more ? (data.cursor ? String(data.cursor) : undefined) : undefined;
+  } while (cursor);
+  return files;
 }
 
 export async function dropboxDeleteItem(refreshToken: string, itemId: string): Promise<void> {
@@ -151,10 +160,11 @@ export async function dropboxEnsureFolder(refreshToken: string, preferredName: s
     const path = `/${candidate}`;
     const res = await apiFetch(refreshToken, '/files/get_metadata', { path });
     if (res.ok) {
-      const meta = await res.json() as { id?: unknown };
-      return { id: meta.id ? String(meta.id) : path, created: false };
-    }
-    if (res.status !== 409) {
+      const meta = await res.json() as { '.tag'?: string; id?: unknown };
+      if (meta['.tag'] === 'folder') {
+        return { id: meta.id ? String(meta.id) : path, created: false };
+      }
+    } else if (res.status !== 409) {
       const data = await res.json().catch(() => null) as { error_summary?: string } | null;
       if (data?.error_summary?.includes('not_found')) continue;
       throw new DropboxApiError(await readErrorText(res), res.status);
@@ -191,7 +201,7 @@ export async function dropboxUploadChunk(
   size: number,
   stream: NodeJS.ReadableStream
 ): Promise<string> {
-  const path = `${folderId.endsWith('/') ? folderId : folderId}/${name}`;
+  const path = `${folderId}/${name}`;
   if (size <= SESSION_FRAGMENT_SIZE) {
     const buffer = await streamToBuffer(stream);
     return uploadSmall(refreshToken, path, buffer);

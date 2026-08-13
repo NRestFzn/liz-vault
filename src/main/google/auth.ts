@@ -103,7 +103,7 @@ async function completeOAuth(code: string, redirectUri: string, userId: number):
 }
 
 export function getDriveClient(refreshToken: string) {
-  const client = createOAuthClient('http://127.0.0.1/oauth/callback');
+  const client = createOAuthClient('http://localhost/oauth/callback');
   client.setCredentials({ refresh_token: refreshToken });
   return google.drive({ version: 'v3', auth: client });
 }

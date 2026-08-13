@@ -92,19 +92,16 @@ export async function koofrTestConnection(email: string, password: string): Prom
   await apiJson(email, password, '/api/v2/user');
 }
 
-export async function koofrEnsureFolder(email: string, password: string, preferredName: string, legacyName: string): Promise<{ id: string; created: boolean }> {
+export async function koofrEnsureFolder(email: string, password: string, folderName: string): Promise<{ id: string; created: boolean }> {
   const mount = await getPrimaryMount(email, password);
   const mountId = mount.id;
-  for (const candidate of [preferredName, legacyName]) {
-    const res = await apiFetch(email, password, `/api/v2/mounts/${encodeURIComponent(mountId)}/files/info?path=${encodeURIComponent(`/${candidate}`)}`);
-    if (res.ok) return { id: mountId, created: false };
-    if (res.status !== 404) throw new KoofrApiError(await readErrorText(res), res.status);
-  }
-  const created = await apiJson(email, password, `/api/v2/mounts/${encodeURIComponent(mountId)}/files/folder?path=${encodeURIComponent('/')}`, {
+  const infoRes = await apiFetch(email, password, `/api/v2/mounts/${encodeURIComponent(mountId)}/files/info?path=${encodeURIComponent(`/${folderName}`)}`);
+  if (infoRes.ok) return { id: mountId, created: false };
+  if (infoRes.status !== 404) throw new KoofrApiError(await readErrorText(infoRes), infoRes.status);
+  await apiJson(email, password, `/api/v2/mounts/${encodeURIComponent(mountId)}/files/folder?path=${encodeURIComponent('/')}`, {
     method: 'POST',
-    body: JSON.stringify({ name: preferredName }),
+    body: JSON.stringify({ name: folderName }),
   });
-  if (created.error) throw new KoofrApiError(String(created.error));
   return { id: mountId, created: true };
 }
 

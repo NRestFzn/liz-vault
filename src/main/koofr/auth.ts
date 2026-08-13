@@ -7,7 +7,6 @@ import {
 } from './drive';
 
 const STORAGE_FOLDER_NAME = 'LizVault';
-const LEGACY_STORAGE_NAME = 'LizVault_Data';
 
 export interface KoofrConnectResult {
   account: AccountRow;
@@ -27,7 +26,7 @@ export async function connectKoofrAccount(userId: number, email: string, passwor
   const { total, used } = await koofrGetQuota(trimmedEmail, password);
   console.log('[Koofr] Quota:', total, 'used:', used);
 
-  const { id: rootFolderId, created: folderCreated } = await koofrEnsureFolder(trimmedEmail, password, STORAGE_FOLDER_NAME, LEGACY_STORAGE_NAME);
+  const { id: rootFolderId, created: folderCreated } = await koofrEnsureFolder(trimmedEmail, password, STORAGE_FOLDER_NAME);
   console.log(`[Koofr] ${folderCreated ? 'Created' : 'Found existing'} ${STORAGE_FOLDER_NAME} storage folder (mount):`, rootFolderId);
 
   const account = addAccount({

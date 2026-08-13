@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { shell } from 'electron';
 
-const LOOPBACK_HOST = '127.0.0.1';
+const LOOPBACK_HOST = 'localhost';
 const CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
 
 const SUCCESS_HTML =
