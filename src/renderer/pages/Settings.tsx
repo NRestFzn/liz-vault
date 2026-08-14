@@ -8,6 +8,7 @@ export const Settings: React.FC = () => {
   const [confirmDelete, setConfirmDelete] = useState(true);
   const [autoRenameDuplicates, setAutoRenameDuplicates] = useState(true);
   const [autoRefreshQuota, setAutoRefreshQuota] = useState(true);
+  const [autoEmptyTrashDays, setAutoEmptyTrashDays] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const { toastError, toastSuccess } = useToast();
 
@@ -16,10 +17,11 @@ export const Settings: React.FC = () => {
   const [credsLoaded, setCredsLoaded] = useState(false);
 
   useEffect(() => {
-    ipcRenderer.invoke('settings:get').then((res: { confirmDelete: boolean; autoRenameDuplicates: boolean; autoRefreshQuota: boolean }) => {
+    ipcRenderer.invoke('settings:get').then((res: { confirmDelete: boolean; autoRenameDuplicates: boolean; autoRefreshQuota: boolean; autoEmptyTrashDays: number }) => {
       setConfirmDelete(res.confirmDelete);
       setAutoRenameDuplicates(res.autoRenameDuplicates);
       setAutoRefreshQuota(res.autoRefreshQuota);
+      setAutoEmptyTrashDays(res.autoEmptyTrashDays || 0);
       setLoaded(true);
     }).catch(() => {
       setLoaded(true);
@@ -67,6 +69,39 @@ export const Settings: React.FC = () => {
       if (key === 'confirmDelete') setConfirmDelete(prev);
       else if (key === 'autoRenameDuplicates') setAutoRenameDuplicates(prev);
       else setAutoRefreshQuota(prev);
+    }
+  };
+
+  const handleTrashDaysToggle = async (value: boolean) => {
+    const prev = autoEmptyTrashDays;
+    const days = value ? (prev > 0 ? prev : 30) : 0;
+    setAutoEmptyTrashDays(days);
+    try {
+      const res = await ipcRenderer.invoke('settings:set', { autoEmptyTrashDays: days });
+      if (res.error) {
+        toastError(res.error);
+        setAutoEmptyTrashDays(prev);
+      }
+    } catch (e) {
+      toastError(String(e));
+      setAutoEmptyTrashDays(prev);
+    }
+  };
+
+  const handleTrashDaysChange = async (raw: string) => {
+    const parsed = parseInt(raw, 10);
+    const days = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+    const prev = autoEmptyTrashDays;
+    setAutoEmptyTrashDays(days);
+    try {
+      const res = await ipcRenderer.invoke('settings:set', { autoEmptyTrashDays: days });
+      if (res.error) {
+        toastError(res.error);
+        setAutoEmptyTrashDays(prev);
+      }
+    } catch (e) {
+      toastError(String(e));
+      setAutoEmptyTrashDays(prev);
     }
   };
 
@@ -142,7 +177,7 @@ export const Settings: React.FC = () => {
             <Toggle checked={autoRenameDuplicates} onToggle={() => handleToggle('autoRenameDuplicates', !autoRenameDuplicates)} />
           </div>
 
-          <div className="flex items-center justify-between gap-4 p-5">
+          <div className="flex items-center justify-between gap-4 border-b border-line p-5">
             <div className="flex min-w-0 items-center gap-1.5">
               <div className="text-[14px] font-semibold text-ink">Auto-refresh quota</div>
               <InfoTip
@@ -150,6 +185,31 @@ export const Settings: React.FC = () => {
               />
             </div>
             <Toggle checked={autoRefreshQuota} onToggle={() => handleToggle('autoRefreshQuota', !autoRefreshQuota)} />
+          </div>
+
+          <div className="flex items-center justify-between gap-4 p-5">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <div className="text-[14px] font-semibold text-ink">Auto-empty trash</div>
+              <InfoTip
+                text="Permanently delete items from the trash after they've been there for this many days. Trash items older than the limit are removed automatically on startup, after login, and when you open the Trash page."
+              />
+            </div>
+            <div className="flex flex-shrink-0 items-center gap-3">
+              {autoEmptyTrashDays > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    min={1}
+                    value={autoEmptyTrashDays}
+                    onChange={(e) => handleTrashDaysChange(e.target.value)}
+                    aria-label="Days before auto-emptying trash"
+                    className="w-[64px] rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[13px] text-ink transition-colors duration-150 focus:border-accent focus:shadow-[0_0_0_3px_rgba(51,102,255,0.08)] focus:outline-none"
+                  />
+                  <span className="text-[12px] text-muted">days</span>
+                </div>
+              )}
+              <Toggle checked={autoEmptyTrashDays > 0} onToggle={() => handleTrashDaysToggle(autoEmptyTrashDays <= 0)} />
+            </div>
           </div>
         </div>
       </div>

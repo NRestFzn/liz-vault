@@ -1,5 +1,6 @@
 import { addAccount } from '../db/queries';
 import type { AccountRow } from '../../shared/types';
+import { logE2E } from '../e2eLog';
 import {
   koofrEnsureFolder,
   koofrGetProfile,
@@ -19,6 +20,7 @@ export async function connectKoofrAccount(userId: number, email: string, passwor
     throw new Error('Koofr email and app password are required.');
   }
 
+  logE2E('oauth.koofr.start', { userId });
   console.log('[Koofr] Validating credentials…');
   const profile = await koofrGetProfile(trimmedEmail, password);
   console.log('[Koofr] Account:', profile.email, 'display:', profile.displayName);
@@ -38,6 +40,7 @@ export async function connectKoofrAccount(userId: number, email: string, passwor
     used_bytes: used,
     root_folder_id: rootFolderId,
   });
+  logE2E('oauth.koofr.complete', { userId, email: profile.email, accountId: account.id, quotaTotal: total, quotaUsed: used, folderCreated, rootFolderId });
   console.log('[Koofr] Account saved ✓ id:', account.id, 'display:', profile.displayName);
 
   return { account, folderCreated };

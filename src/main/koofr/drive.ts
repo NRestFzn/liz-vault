@@ -1,4 +1,6 @@
-import { Readable } from 'node:stream';
+import { randomBytes } from 'node:crypto';
+import https from 'node:https';
+import { Readable, Transform } from 'node:stream';
 
 const API_BASE = 'https://app.koofr.net';
 const MIB = 1024 * 1024;
@@ -128,40 +130,97 @@ export async function koofrDownloadStream(email: string, password: string, mount
   return Readable.fromWeb(res.body as import('node:stream/web').ReadableStream);
 }
 
+const MULTIPART_BOUNDARY_PREFIX = '----LizVaultBoundary';
+
+function multipartContentType(boundary: string): string {
+  return `multipart/form-data; boundary=${boundary}`;
+}
+
+function multipartPreamble(boundary: string, name: string): Buffer {
+  const safeName = name.replace(/"/g, '\\"');
+  return Buffer.from(
+    `--${boundary}\r\n` +
+    `Content-Disposition: form-data; name="file"; filename="${safeName}"\r\n` +
+    'Content-Type: application/octet-stream\r\n' +
+    '\r\n'
+  );
+}
+
+function multipartEpilogue(boundary: string): Buffer {
+  return Buffer.from(`\r\n--${boundary}--\r\n`);
+}
+
 export async function koofrUploadChunk(
   email: string,
   password: string,
   mountId: string,
   folderPath: string,
   name: string,
-  stream: NodeJS.ReadableStream
+  stream: NodeJS.ReadableStream,
+  size: number
 ): Promise<string> {
-  const buffer = await streamToBuffer(stream);
-  const form = new FormData();
-  form.append('file', new Blob([new Uint8Array(buffer)], { type: 'application/octet-stream' }), name);
+  const boundary = `${MULTIPART_BOUNDARY_PREFIX}${randomBytes(16).toString('hex')}`;
+  const preamble = multipartPreamble(boundary, name);
+  const epilogue = multipartEpilogue(boundary);
+  const contentLength = preamble.length + size + epilogue.length;
+
   const params = new URLSearchParams({
     path: folderPath,
     filename: name,
     info: 'true',
     overwrite: 'true',
   });
-  const res = await fetch(`${API_BASE}/content/api/v2/mounts/${encodeURIComponent(mountId)}/files/put?${params.toString()}`, {
-    method: 'POST',
-    headers: { Authorization: basicAuth(email, password) },
-    body: form,
+  const url = `${API_BASE}/content/api/v2/mounts/${encodeURIComponent(mountId)}/files/put?${params.toString()}`;
+
+  const res = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+    let headerSent = false;
+    const body = new Transform({
+      transform(chunk: Buffer | string, _enc: BufferEncoding, cb: () => void) {
+        if (!headerSent) {
+          this.push(preamble);
+          headerSent = true;
+        }
+        this.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        cb();
+      },
+      flush(cb: () => void) {
+        if (!headerSent) this.push(preamble);
+        this.push(epilogue);
+        cb();
+      },
+    });
+
+    const req = https.request(url, {
+      method: 'POST',
+      headers: {
+        Authorization: basicAuth(email, password),
+        'Content-Type': multipartContentType(boundary),
+        'Content-Length': String(contentLength),
+      },
+    }, res => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c: Buffer) => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf-8') }));
+      res.on('error', reject);
+    });
+
+    req.on('error', reject);
+    stream.on('error', err => req.destroy(err));
+    stream.pipe(body).pipe(req);
   });
-  if (!res.ok) throw new KoofrApiError(await readErrorText(res), res.status);
-  const data = await res.json() as { name?: unknown };
+
+  if (res.status < 200 || res.status >= 300) {
+    let message = `Koofr request failed (${res.status})`;
+    try {
+      const parsed = JSON.parse(res.body) as { error?: { message?: string } | string };
+      if (typeof parsed.error === 'object' && parsed.error?.message) message = parsed.error.message;
+      else if (typeof parsed.error === 'string') message = parsed.error;
+    } catch { }
+    throw new KoofrApiError(message, res.status);
+  }
+
+  const data = JSON.parse(res.body) as { name?: unknown };
   const fileName = data.name ? String(data.name) : '';
   if (!fileName) throw new KoofrApiError('Koofr did not return a name for the uploaded chunk.');
   return `${folderPath}/${fileName}`;
-}
-
-function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    stream.on('data', (c: Buffer) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
-    stream.on('end', () => resolve(Buffer.concat(chunks)));
-    stream.on('error', reject);
-  });
 }

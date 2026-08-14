@@ -99,8 +99,8 @@ function tryParseManifest(raw: string): VaultManifest | null {
 
 function importManifest(manifest: VaultManifest): void {
   const activeUserId = getActiveUserId();
-  files = (manifest.files || []).map(f => ({ ...f, user_id: activeUserId ?? f.user_id }));
-  chunks = (manifest.chunks || []).map(c => ({ ...c, account_provider: c.account_provider ?? 'google' }));
+  files = (manifest.files || []).map(f => ({ ...f, user_id: activeUserId ?? f.user_id, deleted_at: f.deleted_at ?? null }));
+  chunks = (manifest.chunks || []).map(c => ({ ...c, account_provider: c.account_provider ?? 'google', enc_iv: c.enc_iv ?? null, enc_tag: c.enc_tag ?? null }));
   nextFileId = Math.max(1, ...files.map(f => f.id), 0) + 1;
   nextChunkId = Math.max(1, ...chunks.map(c => c.id), 0) + 1;
 }
@@ -247,7 +247,7 @@ export async function flushManifestSave(): Promise<void> {
 }
 
 
-export function addFile(file: Omit<FileRow, 'id' | 'created_at' | 'updated_at'> & { created_at?: string, updated_at?: string }): FileRow {
+export function addFile(file: Omit<FileRow, 'id' | 'created_at' | 'updated_at' | 'deleted_at'> & { created_at?: string, updated_at?: string, deleted_at?: string | null }): FileRow {
   const now = nowUtc();
   const row: FileRow = {
     id: nextFileId++,
@@ -261,6 +261,7 @@ export function addFile(file: Omit<FileRow, 'id' | 'created_at' | 'updated_at'> 
     is_folder: file.is_folder,
     parent_folder_id: file.parent_folder_id,
     is_starred: file.is_starred,
+    deleted_at: file.deleted_at ?? null,
   };
   files.push(row);
   queueManifestSave();
@@ -286,13 +287,13 @@ export function getFile(id: number, userId: number): FileRow | undefined {
 
 export function getAllFiles(userId: number): FileRow[] {
   return files
-    .filter(f => f.user_id === userId && f.is_folder === 0)
+    .filter(f => f.user_id === userId && f.is_folder === 0 && f.deleted_at == null)
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
 }
 
 export function getFilesInFolder(userId: number, folderId: number | null): FileRow[] {
   return files
-    .filter(f => f.user_id === userId && f.parent_folder_id === folderId)
+    .filter(f => f.user_id === userId && f.parent_folder_id === folderId && f.deleted_at == null)
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
 }
 
@@ -303,7 +304,7 @@ export function getChildIds(userId: number, parentFolderId: number): number[] {
 export function getFolderItemCounts(userId: number, folderIds: number[]): Record<number, number> {
   const counts: Record<number, number> = {};
   for (const fid of folderIds) {
-    counts[fid] = files.filter(f => f.user_id === userId && f.parent_folder_id === fid).length;
+    counts[fid] = files.filter(f => f.user_id === userId && f.parent_folder_id === fid && f.deleted_at == null).length;
   }
   return counts;
 }
@@ -333,14 +334,14 @@ export function toggleStarred(id: number, userId: number, starred: boolean): Fil
 
 export function getStarredFiles(userId: number): FileRow[] {
   return files
-    .filter(f => f.user_id === userId && f.is_starred === 1)
+    .filter(f => f.user_id === userId && f.is_starred === 1 && f.deleted_at == null)
     .sort((a, b) => (b.updated_at || b.created_at).localeCompare(a.updated_at || a.created_at));
 }
 
 export function getStorageStats(userId: number): StorageCategories {
   const stats: StorageCategories = { photo: 0, video: 0, document: 0, other: 0 };
   for (const f of files) {
-    if (f.user_id !== userId || f.is_folder === 1) continue;
+    if (f.user_id !== userId || f.is_folder === 1 || f.deleted_at != null) continue;
     const cat = getFileCategory(f.name);
     if (cat === 'image') stats.photo += f.size_bytes;
     else if (cat === 'video') stats.video += f.size_bytes;
@@ -353,7 +354,7 @@ export function getStorageStats(userId: number): StorageCategories {
 export function searchFilesAndFolders(userId: number, query: string, limit = 25): SearchResultRow[] {
   const q = query.trim().toLowerCase();
   if (!q) return [];
-  const matched = files.filter(f => f.user_id === userId && f.name.toLowerCase().includes(q));
+  const matched = files.filter(f => f.user_id === userId && f.deleted_at == null && f.name.toLowerCase().includes(q));
   matched.sort((a, b) => {
     if (a.is_folder !== b.is_folder) return b.is_folder - a.is_folder;
     const aPrefix = a.name.toLowerCase().startsWith(q) ? 0 : 1;
@@ -388,6 +389,7 @@ export function findDuplicateName(userId: number, name: string, parentFolderId: 
   const lower = name.toLowerCase();
   return files.find(f =>
     f.user_id === userId &&
+    f.deleted_at == null &&
     f.name.toLowerCase() === lower &&
     f.is_folder === (isFolder ? 1 : 0) &&
     f.parent_folder_id === parentFolderId &&
@@ -407,6 +409,60 @@ export function getUniqueName(userId: number, name: string, parentFolderId: numb
   return candidate;
 }
 
+
+function collectDescendantIds(userId: number, folderId: number): number[] {
+  const ids: number[] = [folderId];
+  const queue: number[] = [folderId];
+  let i = 0;
+  while (i < queue.length) {
+    const current = queue[i++];
+    for (const childId of getChildIds(userId, current)) {
+      ids.push(childId);
+      queue.push(childId);
+    }
+  }
+  return ids;
+}
+
+export function trashFile(userId: number, fileId: number): void {
+  const target = getFile(fileId, userId);
+  if (!target || target.deleted_at != null) return;
+  const now = nowUtc();
+  const ids = target.is_folder === 1 ? collectDescendantIds(userId, fileId) : [fileId];
+  for (const id of ids) {
+    const f = files.find(x => x.id === id);
+    if (f) {
+      f.deleted_at = now;
+      f.updated_at = now;
+    }
+  }
+  queueManifestSave();
+}
+
+export function restoreFile(userId: number, fileId: number): void {
+  const target = getFile(fileId, userId);
+  if (!target || target.deleted_at == null) return;
+  const ids = target.is_folder === 1 ? collectDescendantIds(userId, fileId) : [fileId];
+  for (const id of ids) {
+    const f = files.find(x => x.id === id);
+    if (f) {
+      f.deleted_at = null;
+      f.updated_at = nowUtc();
+    }
+  }
+  queueManifestSave();
+}
+
+export function getTrashedFiles(userId: number): FileRow[] {
+  return files
+    .filter(f => f.user_id === userId && f.deleted_at != null)
+    .filter(f => f.parent_folder_id == null || getFile(f.parent_folder_id, userId)?.deleted_at == null)
+    .sort((a, b) => (b.deleted_at || b.updated_at || b.created_at).localeCompare(a.deleted_at || a.updated_at || a.created_at));
+}
+
+export function getTrashedIds(userId: number): number[] {
+  return getTrashedFiles(userId).map(f => f.id);
+}
 
 export function updateFileStatus(id: number, userId: number, status: FileRow['status']): void {
   const file = getFile(id, userId);

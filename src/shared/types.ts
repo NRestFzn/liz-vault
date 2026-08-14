@@ -56,6 +56,7 @@ export interface FileRow {
   is_folder: number;
   parent_folder_id: number | null;
   is_starred: number;
+  deleted_at: string | null;
 }
 
 export type ChunkStatus = 'uploaded' | 'pending' | 'error';
@@ -74,6 +75,8 @@ export interface ChunkRow {
   sequence: number;
   size_bytes: number;
   status: ChunkStatus;
+  enc_iv?: string | null;
+  enc_tag?: string | null;
 }
 
 
@@ -227,6 +230,28 @@ export interface IpcFilesDeleteManyResponse {
   error?: string;
 }
 
+export interface TrashItemRow extends FileRow {
+  parent_path: string[];
+}
+
+export interface IpcTrashListResponse {
+  items: TrashItemRow[];
+}
+
+export interface IpcFileRestoreRequest {
+  fileId: number;
+}
+
+export interface IpcFileRestoreResponse {
+  success?: boolean;
+  error?: string;
+}
+
+export interface IpcTrashEmptyResponse {
+  success?: boolean;
+  error?: string;
+}
+
 export interface IpcUploadProgressEvent {
   fileId: number;
   bytesUploaded: number;
@@ -278,12 +303,14 @@ export interface IpcSettingsGetResponse {
   confirmDelete: boolean;
   autoRenameDuplicates: boolean;
   autoRefreshQuota: boolean;
+  autoEmptyTrashDays: number;
 }
 
 export interface IpcSettingsSetRequest {
   confirmDelete?: boolean;
   autoRenameDuplicates?: boolean;
   autoRefreshQuota?: boolean;
+  autoEmptyTrashDays?: number;
 }
 
 export interface IpcSettingsSetResponse {

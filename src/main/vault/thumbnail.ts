@@ -1,4 +1,6 @@
 import { getFile, getChunksForFile, getAccountByEmail } from '../db/queries';
+import { ensureUserManifestKey } from '../db/config';
+import { createChunkDecipher } from '../db/chunkCrypto';
 import { downloadChunkStream } from './storage';
 import { isBrowserDecodableImage, getImageMime } from '../../shared/fileCategory';
 
@@ -46,7 +48,10 @@ async function fetchThumbnail(userId: number, fileId: number): Promise<string | 
   const account = getAccountByEmail(firstChunk.account_email, firstChunk.account_provider);
   if (!account) return null;
 
-  const stream = await downloadChunkStream(account, firstChunk.drive_file_id);
+  let stream = await downloadChunkStream(account, firstChunk.drive_file_id);
+  if (firstChunk.enc_iv && firstChunk.enc_tag) {
+    stream = stream.pipe(createChunkDecipher(ensureUserManifestKey(userId), firstChunk.enc_iv, firstChunk.enc_tag));
+  }
   const buffer = await streamToBuffer(stream);
   const dataUrl = `data:${mime};base64,${buffer.toString('base64')}`;
 

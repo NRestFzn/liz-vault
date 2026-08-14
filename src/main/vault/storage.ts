@@ -102,8 +102,8 @@ const BACKENDS: Record<AccountProvider, Backend> = {
     },
   },
   koofr: {
-    uploadChunk(account, name, stream) {
-      return koofrUploadChunk(account.email, account.refresh_token, account.root_folder_id ?? '', KOOFR_FOLDER_PATH, name, stream);
+    uploadChunk(account, name, stream, size) {
+      return koofrUploadChunk(account.email, account.refresh_token, account.root_folder_id ?? '', KOOFR_FOLDER_PATH, name, stream, size);
     },
     downloadChunkStream(account, driveFileId) {
       return koofrDownloadStream(account.email, account.refresh_token, account.root_folder_id ?? '', driveFileId);

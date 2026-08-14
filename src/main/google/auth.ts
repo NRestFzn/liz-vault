@@ -2,6 +2,7 @@ import { google } from 'googleapis';
 import type { drive_v3 } from 'googleapis';
 import { errorMessage } from '../errors';
 import { runLoopbackOAuthFlow } from '../oauth/loopback';
+import { logE2E } from '../e2eLog';
 import { addAccount, addUser, getGoogleCredentials, seedManifestForUser } from '../db/queries';
 import type { AccountRow, UserRow } from '../../shared/types';
 
@@ -45,6 +46,7 @@ export interface LoginFlowResult {
 
 export async function initiateOAuthFlow(userId: number): Promise<OAuthFlowResult> {
   assertCredentialsConfigured();
+  logE2E('oauth.google.start', { userId });
   const { code, redirectUri } = await runLoopbackOAuthFlow(async (redirectUri) => {
     const oauth2Client = createOAuthClient(redirectUri);
     return oauth2Client.generateAuthUrl({
@@ -58,6 +60,7 @@ export async function initiateOAuthFlow(userId: number): Promise<OAuthFlowResult
 
 async function completeOAuth(code: string, redirectUri: string, userId: number): Promise<OAuthFlowResult> {
   console.log('[OAuth] Exchanging code for tokens…');
+  logE2E('oauth.google.code-received', { userId });
   const oauth2Client = createOAuthClient(redirectUri);
   const { tokens } = await oauth2Client.getToken(code);
   oauth2Client.setCredentials(tokens);
@@ -97,6 +100,7 @@ async function completeOAuth(code: string, redirectUri: string, userId: number):
     used_bytes: usage,
     root_folder_id: rootFolderId
   });
+  logE2E('oauth.google.complete', { userId, email, accountId: account.id, quotaTotal: limit, quotaUsed: usage, folderCreated, rootFolderId });
   console.log('[OAuth] Account saved ✓ id:', account.id);
 
   return { account, folderCreated };
@@ -128,6 +132,7 @@ export async function findOrCreateFolder(drive: drive_v3.Drive, preferredName: s
 
 export async function initiateLoginFlow(): Promise<LoginFlowResult> {
   assertCredentialsConfigured();
+  logE2E('oauth.login.start');
   const { code, redirectUri } = await runLoopbackOAuthFlow(async (redirectUri) => {
     const oauth2Client = createOAuthClient(redirectUri);
     return oauth2Client.generateAuthUrl({
@@ -146,6 +151,7 @@ export async function initiateLoginFlow(): Promise<LoginFlowResult> {
 
 async function completeLoginOAuth(code: string, redirectUri: string): Promise<LoginFlowResult> {
   console.log('[Login] Exchanging code for tokens…');
+  logE2E('oauth.login.code-received');
   const oauth2Client = createOAuthClient(redirectUri);
   const { tokens } = await oauth2Client.getToken(code);
   oauth2Client.setCredentials(tokens);
@@ -177,6 +183,7 @@ async function completeLoginOAuth(code: string, redirectUri: string): Promise<Lo
 
   const user = addUser({ email, refresh_token: tokens.refresh_token, display_name: displayName, avatar_url: avatarUrl, root_folder_id: rootFolderId });
   console.log('[Login] User saved ✓ id:', user.id);
+  logE2E('oauth.login.complete', { userId: user.id, email, folderCreated, rootFolderId, manifestSeeded: true });
 
   await seedManifestForUser(user);
   return { user, folderCreated };

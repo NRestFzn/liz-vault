@@ -6,6 +6,7 @@ import { FolderRow } from '../components/FolderRow';
 import { FileRow } from '../components/FileRow';
 import { ViewToggle } from '../components/ViewToggle';
 import { ContextMenu } from '../components/ContextMenu';
+import { UploadMenu } from '../components/UploadMenu';
 import { RenameModal } from '../components/RenameModal';
 import { ThumbnailImage } from '../components/ThumbnailImage';
 import { FileTypeIcon } from '../components/FileTypeIcon';
@@ -174,6 +175,13 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
     }
   };
 
+  const handleFolderUpload = async () => {
+    const { filePath, fileName } = await ipcRenderer.invoke('folder:pick');
+    if (filePath && fileName) {
+      startUpload(filePath, fileName);
+    }
+  };
+
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, file: FileRowType } | null>(null);
 
   const [flashId, setFlashId] = useState<number | null>(null);
@@ -207,7 +215,15 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
 
   const handleContextMenu = (e: React.MouseEvent, file: FileRowType) => {
     e.preventDefault();
+    e.stopPropagation();
     setContextMenu({ x: e.clientX, y: e.clientY, file });
+  };
+
+  const [uploadMenu, setUploadMenu] = useState<{ x: number; y: number } | null>(null);
+
+  const handleListContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setUploadMenu({ x: e.clientX, y: e.clientY });
   };
 
   const toggleFolderSelect = (folder: FileRowType, e?: React.MouseEvent) => {
@@ -364,7 +380,10 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
         <div className="flex items-center gap-2">
           <ViewToggle viewMode={viewMode} onViewChange={onViewModeChange} />
           <button type="button" className="btn-outline" onClick={handleFileUpload}>
-            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Upload
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Upload File
+          </button>
+          <button type="button" className="btn-outline" onClick={handleFolderUpload}>
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg> Upload Folder
           </button>
           <button type="button" className="btn-outline" onClick={() => setIsCreateFolderOpen(true)}>
             <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg> New Folder
@@ -446,7 +465,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
       )}
 
       {}
-      <div className="mt-2 flex-1">
+      <section aria-label="File list" className="mt-2 flex-1" onContextMenu={handleListContextMenu}>
         {viewMode === 'grid' && tabFolders.length > 0 && filteredAndSortedFiles.length > 0 && (
           <div className="-mt-2 mb-5 border-t border-line" />
         )}
@@ -580,7 +599,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
             )}
           </div>
         )}
-      </div>
+      </section>
 
       {isCreateFolderOpen && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 backdrop-blur-[2px]">
@@ -612,6 +631,18 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ viewMode, onViewMode
             onOpen={contextMenu.file.is_folder === 1 ? () => onFolderChange(contextMenu.file.id, contextMenu.file.name) : undefined}
             onRename={(f) => { setRenameTarget(f); setRenameError(null); }}
             onClose={() => setContextMenu(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {uploadMenu && (
+          <UploadMenu
+            x={uploadMenu.x}
+            y={uploadMenu.y}
+            onUploadFile={handleFileUpload}
+            onUploadFolder={handleFolderUpload}
+            onClose={() => setUploadMenu(null)}
           />
         )}
       </AnimatePresence>

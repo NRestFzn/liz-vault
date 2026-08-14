@@ -7,6 +7,7 @@ import { FileDetailModal } from './components/FileDetailModal';
 import { FileExplorer } from './pages/FileExplorer';
 import { QuotaTracker } from './pages/QuotaTracker';
 import { Starred } from './pages/Starred';
+import { Trash } from './pages/Trash';
 import { Settings } from './pages/Settings';
 import { ToastProvider } from './components/Toast';
 import { AnimatePresence } from 'motion/react';
@@ -81,6 +82,7 @@ const App = () => {
             {activeView === 'files' && <FileExplorer viewMode={viewMode} onViewModeChange={handleViewModeChange} folderId={folderState.id} folderName={folderState.name} onFolderChange={handleFolderChange} highlightFileId={highlightFileId} onHighlightHandled={handleHighlightHandled} />}
             {activeView === 'quota' && <QuotaTracker />}
             {activeView === 'starred' && <Starred viewMode={viewMode} onViewModeChange={handleViewModeChange} />}
+            {activeView === 'trash' && <Trash />}
             {activeView === 'settings' && <Settings />}
           </div>
         ) : activeView === 'settings' ? (

@@ -2,6 +2,7 @@ import { runLoopbackOAuthFlow } from '../oauth/loopback';
 import { addAccount } from '../db/queries';
 import type { AccountRow } from '../../shared/types';
 import { getDropboxCredentials } from '../db/config';
+import { logE2E } from '../e2eLog';
 import {
   dropboxEnsureFolder,
   dropboxGetProfile,
@@ -62,6 +63,7 @@ export interface DropboxConnectResult {
 
 export async function initiateDropboxOAuthFlow(userId: number): Promise<DropboxConnectResult> {
   const clientId = requireClientId();
+  logE2E('oauth.dropbox.start', { userId });
   let verifier = '';
   const { code, redirectUri } = await runLoopbackOAuthFlow(async (redirectUri) => {
     verifier = generateCodeVerifier();
@@ -78,6 +80,7 @@ export async function initiateDropboxOAuthFlow(userId: number): Promise<DropboxC
   }, 'Dropbox login timed out. Please try again.');
 
   console.log('[Dropbox] Exchanging code for tokens…');
+  logE2E('oauth.dropbox.code-received', { userId });
   const refreshToken = await exchangeCode(redirectUri, code, verifier);
   console.log('[Dropbox] Got refresh token ✓');
 
@@ -97,6 +100,7 @@ export async function initiateDropboxOAuthFlow(userId: number): Promise<DropboxC
     used_bytes: used,
     root_folder_id: rootFolderId,
   });
+  logE2E('oauth.dropbox.complete', { userId, email, accountId: account.id, quotaTotal: total, quotaUsed: used, folderCreated, rootFolderId });
   console.log('[Dropbox] Account saved ✓ id:', account.id, 'display:', displayName);
 
   return { account, folderCreated };

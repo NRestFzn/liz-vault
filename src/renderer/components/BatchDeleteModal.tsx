@@ -57,9 +57,9 @@ export const BatchDeleteModal: React.FC<BatchDeleteModalProps> = ({ items, onCon
         exit={{ opacity: 0, scale: 0.96, y: 10 }}
         transition={{ duration: 0.18, ease: 'easeOut' }}
       >
-        <h3 className="mb-1 text-[18px] font-semibold text-ink">Delete {items.length} items?</h3>
+        <h3 className="mb-1 text-[18px] font-semibold text-ink">Move {items.length} items to Trash?</h3>
         <div className="mb-4 text-[12.5px] leading-relaxed text-muted">
-          {summary} will be permanently removed from all connected drives. Folders are deleted along with everything inside them. This cannot be undone.
+          {summary} will be moved to the trash. Folders are moved along with everything inside them. You can restore them later.
         </div>
 
         <div className="max-h-[220px] overflow-y-auto rounded-lg border border-line bg-surface/60 p-1.5">
@@ -91,7 +91,7 @@ export const BatchDeleteModal: React.FC<BatchDeleteModalProps> = ({ items, onCon
             className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-red-600 px-4 py-2 text-[13px] font-medium text-white transition-colors duration-150 hover:bg-red-700"
             onClick={onConfirm}
           >
-            Delete {items.length} items
+            Move to Trash
           </button>
         </div>
       </motion.div>

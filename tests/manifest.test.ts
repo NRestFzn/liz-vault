@@ -5,6 +5,7 @@ import {
   cancelScheduledSave,
   addFile,
   createFolder,
+  getFile,
   getAllFiles,
   getFilesInFolder,
   getUniqueName,
@@ -20,6 +21,9 @@ import {
   toggleStarred,
   getStarredFiles,
   renameFile,
+  trashFile,
+  restoreFile,
+  getTrashedFiles,
 } from '../src/main/db/manifest';
 
 const USER = 7;
@@ -193,5 +197,52 @@ test('renameFile updates the name', () => {
   const f = file({ name: 'old.txt' });
   renameFile(f.id, USER, 'new.txt');
   assert.strictEqual(getAllFiles(USER)[0].name, 'new.txt');
+});
+
+test('trash hides files from listings and restores them', () => {
+  const f = file({ name: 'gone.txt' });
+  file({ name: 'kept.txt' });
+
+  trashFile(USER, f.id);
+
+  assert.deepStrictEqual(getAllFiles(USER).map(x => x.name), ['kept.txt']);
+  assert.deepStrictEqual(getFilesInFolder(USER, null).map(x => x.name), ['kept.txt']);
+  assert.deepStrictEqual(getTrashedFiles(USER).map(x => x.name), ['gone.txt']);
+
+  restoreFile(USER, f.id);
+  assert.deepStrictEqual(getAllFiles(USER).map(x => x.name).sort(), ['gone.txt', 'kept.txt']);
+  assert.deepStrictEqual(getTrashedFiles(USER), []);
+});
+
+test('trashing a folder hides the whole subtree but lists only the folder', () => {
+  const folder = createFolder(USER, 'Folder');
+  const child = file({ name: 'child.txt', parent_folder_id: folder.id });
+  file({ name: 'outside.txt' });
+
+  trashFile(USER, folder.id);
+
+  assert.deepStrictEqual(getFilesInFolder(USER, folder.id), []);
+  assert.deepStrictEqual(getTrashedFiles(USER).map(x => x.name), ['Folder']);
+
+  restoreFile(USER, folder.id);
+  assert.deepStrictEqual(getFilesInFolder(USER, folder.id).map(x => x.name), ['child.txt']);
+  assert.deepStrictEqual(getAllFiles(USER).map(x => x.name).sort(), ['child.txt', 'outside.txt']);
+  assert.ok(getFile(child.id, USER));
+});
+
+test('trashed files do not block duplicate names and are excluded from search/stats/starred', () => {
+  const f = file({ name: 'dup.txt' });
+  trashFile(USER, f.id);
+
+  assert.strictEqual(findDuplicateName(USER, 'dup.txt', null, false), undefined);
+  assert.deepStrictEqual(searchFilesAndFolders(USER, 'dup'), []);
+
+  const photo = file({ name: 'photo.png', size_bytes: 100 });
+  const img = file({ name: 'trashed.png', size_bytes: 500 });
+  toggleStarred(photo.id, USER, true);
+  toggleStarred(img.id, USER, true);
+  trashFile(USER, img.id);
+  assert.deepStrictEqual(getStorageStats(USER), { photo: 100, video: 0, document: 0, other: 0 });
+  assert.deepStrictEqual(getStarredFiles(USER).map(x => x.name), ['photo.png']);
 });
 

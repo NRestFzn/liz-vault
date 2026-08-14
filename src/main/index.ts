@@ -2,6 +2,8 @@ import { app, BrowserWindow, Menu } from 'electron';
 import path from 'node:path';
 import { initConfig, initManifest, ensureManifestLoaded, flushNow, getActiveUserId } from './db/queries';
 import { registerIpcHandlers } from './ipc';
+import { initE2ELog, logE2E, logE2EError } from './e2eLog';
+import { sweepExpiredTrash } from './vault/delete';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -34,13 +36,22 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  initE2ELog();
   initConfig();
   initManifest();
 
   createWindow();
 
   if (getActiveUserId() != null) {
-    ensureManifestLoaded().catch(err => console.error('[Startup] Manifest load failed:', err));
+    const userId = getActiveUserId();
+    ensureManifestLoaded().catch(err => {
+      console.error('[Startup] Manifest load failed:', err);
+      logE2EError('manifest.load.error', err);
+    }).then(() => {
+      if (userId != null) sweepExpiredTrash(userId).catch(() => {});
+    });
+  } else {
+    logE2E('manifest.skip', { reason: 'no active user' });
   }
 
   app.on('activate', () => {

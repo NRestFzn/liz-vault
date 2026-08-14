@@ -92,10 +92,10 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, o
     setConfirmOpen(false);
   };
 
-  const deleteTitle = isFolder ? 'Delete Folder' : 'Delete File';
+  const deleteTitle = isFolder ? 'Move Folder to Trash?' : 'Move File to Trash?';
   const deleteMessage = isFolder
-    ? <>Delete <span className="font-medium text-ink">“{file.name}”</span> and everything inside it? This cannot be undone.</>
-    : <>Delete <span className="font-medium text-ink">“{file.name}”</span> from all connected drives? This cannot be undone.</>;
+    ? <>Move <span className="font-medium text-ink">“{file.name}”</span> and everything inside it to the trash? You can restore it later.</>
+    : <>Move <span className="font-medium text-ink">“{file.name}”</span> to the trash? You can restore it later.</>;
 
   const handleDownload = async () => {
     for (const target of targets) {
@@ -187,8 +187,8 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, o
         onClick={handleDeleteClick}
         className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-[13px] font-medium text-red-600 transition-colors hover:bg-red-50 cursor-pointer"
       >
-        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
-        {targets.length > 1 ? `Delete ${targets.length} items` : 'Delete'}
+        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">            <path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+        {targets.length > 1 ? `Move ${targets.length} items to Trash` : 'Move to Trash'}
       </button>
 
       <AnimatePresence>
@@ -196,7 +196,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, file, onClose, o
           <ConfirmDialog
             title={deleteTitle}
             message={deleteMessage}
-            confirmLabel="Delete"
+            confirmLabel="Move to Trash"
             checkboxLabel="Don't ask again"
             onConfirm={handleConfirmDelete}
             onCancel={handleCancelDelete}

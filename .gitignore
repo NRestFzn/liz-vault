@@ -35,6 +35,8 @@ graphify-out/
 src/graphify-out/
 .graphifyignore
 
+logs/
+
 .freebuff/
 
 # NOTE: .agents/ is intentionally TRACKED (AGENTS.md, PRD.md, SESSION_STATE.md,

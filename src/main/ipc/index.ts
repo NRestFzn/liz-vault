@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron';
 import type { BrowserWindow, IpcMainInvokeEvent } from 'electron';
+import fs from 'node:fs';
 import { errorMessage } from '../errors';
 import {
   getAllAccounts, removeAccount, setAccountTokenStatus,
@@ -8,7 +9,8 @@ import {
   renameFile, findDuplicateName, getUniqueName, getUser, getAppState, setAppState, 
   ensureManifestLoaded, invalidateManifestLoaded, resetVaultStore, getActiveUserId, setActiveUserId,
   getGoogleCredentials, setGoogleCredentials,
-  getDropboxCredentials, setDropboxCredentials
+  getDropboxCredentials, setDropboxCredentials,
+  trashFile, restoreFile, getTrashedFiles
 } from '../db/queries';
 import { initiateOAuthFlow, initiateLoginFlow } from '../google/auth';
 import { initiateDropboxOAuthFlow } from '../dropbox/auth';
@@ -18,6 +20,7 @@ import { testAccountToken } from '../vault/storage';
 import type { 
   IpcAccountRemoveRequest, IpcAccountTestResponse, IpcFileDeleteRequest, IpcAccountRemoveResponse,
   IpcFileDeleteResponse, IpcFilesDeleteManyRequest, IpcFilesDeleteManyResponse,
+  IpcFileRestoreRequest, IpcFileRestoreResponse, IpcTrashEmptyResponse, IpcTrashListResponse,
   IpcFileUploadRequest, IpcFileUploadResponse, IpcFileDownloadRequest, IpcFileDownloadResponse,
   IpcFolderCreateRequest, IpcFolderCreateResponse,
   IpcFilesInFolderRequest, IpcFilesInFolderResponse,
@@ -31,15 +34,24 @@ import type {
   IpcAccountAddResponse
 } from '../../shared/types';
 import type { AccountRow } from '../../shared/types';
-import { uploadFile } from '../vault/upload';
+import { uploadFile, uploadFolder } from '../vault/upload';
 import { downloadFile } from '../vault/download';
-import { deleteFileChunks } from '../vault/delete';
+import { deleteFileChunks, sweepExpiredTrash } from '../vault/delete';
 import { getThumbnailDataUrl, invalidateThumbnail } from '../vault/thumbnail';
+import { logE2E, logE2EError } from '../e2eLog';
 
 function requireUserId(): number {
   const id = getActiveUserId();
   if (id == null) throw new Error('Not logged in. Please log in first.');
   return id;
+}
+
+function isDirectory(filePath: string): boolean {
+  try {
+    return fs.statSync(filePath).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 export function registerIpcHandlers(mainWindow: BrowserWindow) {
@@ -50,14 +62,20 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
   });
 
   const connectAccount = async (flow: () => Promise<{ account: AccountRow; folderCreated: boolean }>): Promise<IpcAccountAddResponse> => {
+    logE2E('connect.start', { userId: requireUserId() });
     try {
       const { account, folderCreated } = await flow();
+      logE2E('connect.success', { provider: account.provider, email: account.email, accountId: account.id, folderCreated, totalBytes: account.total_bytes, usedBytes: account.used_bytes });
       invalidateManifestLoaded();
       await ensureManifestLoaded();
       mainWindow.webContents.send('account:added', { account });
       return { account, folderCreated };
     } catch (e) {
-      if (e instanceof OAuthCancelledError) return { cancelled: true };
+      if (e instanceof OAuthCancelledError) {
+        logE2E('connect.cancelled');
+        return { cancelled: true };
+      }
+      logE2EError('connect.error', e);
       return { error: errorMessage(e) };
     }
   };
@@ -78,10 +96,12 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
     try {
       const userId = requireUserId();
       const result = await testAccountToken(userId, payload.accountId);
+      logE2E('token.test', { accountId: payload.accountId, ok: result.ok, expired: result.expired, error: result.error });
       if (result.ok) setAccountTokenStatus(payload.accountId, true);
       else if (result.expired) setAccountTokenStatus(payload.accountId, false);
       return result;
     } catch (e) {
+      logE2EError('token.test.error', e);
       return { ok: false, expired: false, error: errorMessage(e) };
     }
   });
@@ -108,15 +128,22 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
 
 
   ipcMain.handle('user:login', async () => {
+    logE2E('login.start');
     try {
       const { user, folderCreated } = await initiateLoginFlow();
       setActiveUserId(user.id);
       resetVaultStore();
       await ensureManifestLoaded();
+      sweepExpiredTrash(user.id).catch(() => {});
       mainWindow.webContents.send('user:changed', { user });
+      logE2E('login.success', { userId: user.id, email: user.email, folderCreated });
       return { user, folderCreated };
     } catch (e) {
-      if (e instanceof OAuthCancelledError) return { cancelled: true };
+      if (e instanceof OAuthCancelledError) {
+        logE2E('login.cancelled');
+        return { cancelled: true };
+      }
+      logE2EError('login.error', e);
       return { error: errorMessage(e) };
     }
   });
@@ -126,8 +153,10 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
       setActiveUserId(null);
       resetVaultStore();
       mainWindow.webContents.send('user:changed', { user: null });
+      logE2E('logout.success');
       return { success: true };
     } catch (e) {
+      logE2EError('logout.error', e);
       return { error: errorMessage(e) };
     }
   });
@@ -258,11 +287,12 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
       const target = getFile(payload.fileId, userId);
       if (!target) return { error: 'File not found' };
 
-      const deletedIds = await deleteFileChunks(userId, payload.fileId);
-      for (const id of deletedIds) invalidateThumbnail(id);
+      trashFile(userId, payload.fileId);
       mainWindow.webContents.send('file:deleted', { fileId: payload.fileId });
+      logE2E('delete.trash', { fileId: payload.fileId, name: target.name, isFolder: target.is_folder === 1 });
       return { success: true };
     } catch (e) {
+      logE2EError('delete.error', e, { fileId: payload.fileId });
       return { error: errorMessage(e) };
     }
   });
@@ -275,12 +305,78 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
       if (ids.length === 0) return { success: true };
 
       for (const id of ids) {
-        const deletedIds = await deleteFileChunks(userId, id);
-        for (const did of deletedIds) invalidateThumbnail(did);
+        trashFile(userId, id);
         mainWindow.webContents.send('file:deleted', { fileId: id });
       }
       return { success: true };
     } catch (e) {
+      return { error: errorMessage(e) };
+    }
+  });
+
+  ipcMain.handle('trash:list', async (): Promise<IpcTrashListResponse> => {
+    try {
+      await ensureManifestLoaded();
+      const userId = requireUserId();
+      await sweepExpiredTrash(userId).catch(() => {});
+      const items = getTrashedFiles(userId).map(f => ({
+        ...f,
+        parent_path: getFolderPath(userId, f.parent_folder_id).map(p => p.name)
+      }));
+      return { items };
+    } catch (_e) {
+      return { items: [] };
+    }
+  });
+
+  ipcMain.handle('file:restore', async (_event: IpcMainInvokeEvent, payload: IpcFileRestoreRequest): Promise<IpcFileRestoreResponse> => {
+    try {
+      await ensureManifestLoaded();
+      const userId = requireUserId();
+      const target = getFile(payload.fileId, userId);
+      if (!target) return { error: 'File not found' };
+      restoreFile(userId, payload.fileId);
+      mainWindow.webContents.send('file:restored', { fileId: payload.fileId });
+      logE2E('restore.success', { fileId: payload.fileId, name: target.name });
+      return { success: true };
+    } catch (e) {
+      logE2EError('restore.error', e, { fileId: payload.fileId });
+      return { error: errorMessage(e) };
+    }
+  });
+
+  ipcMain.handle('trash:empty', async (): Promise<IpcTrashEmptyResponse> => {
+    try {
+      await ensureManifestLoaded();
+      const userId = requireUserId();
+      const ids = getTrashedFiles(userId).map(f => f.id);
+      for (const id of ids) {
+        const deletedIds = await deleteFileChunks(userId, id);
+        for (const did of deletedIds) invalidateThumbnail(did);
+        mainWindow.webContents.send('file:deleted', { fileId: id });
+      }
+      logE2E('trash.empty', { count: ids.length });
+      return { success: true };
+    } catch (e) {
+      logE2EError('trash.empty.error', e);
+      return { error: errorMessage(e) };
+    }
+  });
+
+  ipcMain.handle('file:delete-forever', async (_event: IpcMainInvokeEvent, payload: IpcFileDeleteRequest): Promise<IpcFileDeleteResponse> => {
+    try {
+      await ensureManifestLoaded();
+      const userId = requireUserId();
+      const target = getFile(payload.fileId, userId);
+      if (!target) return { error: 'File not found' };
+
+      const deletedIds = await deleteFileChunks(userId, payload.fileId);
+      for (const id of deletedIds) invalidateThumbnail(id);
+      mainWindow.webContents.send('file:deleted', { fileId: payload.fileId });
+      logE2E('delete.forever', { fileId: payload.fileId, name: target.name, affectedIds: deletedIds.length });
+      return { success: true };
+    } catch (e) {
+      logE2EError('delete.error', e, { fileId: payload.fileId });
       return { error: errorMessage(e) };
     }
   });
@@ -321,13 +417,15 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
 
   ipcMain.handle('settings:get', async (): Promise<IpcSettingsGetResponse> => {
     try {
+      const days = parseInt(getAppState('autoEmptyTrashDays') ?? '0', 10);
       return {
         confirmDelete: getAppState('confirmDelete') !== '0',
         autoRenameDuplicates: getAppState('autoRenameDuplicates') !== '0',
-        autoRefreshQuota: getAppState('autoRefreshQuota') !== '0'
+        autoRefreshQuota: getAppState('autoRefreshQuota') !== '0',
+        autoEmptyTrashDays: Number.isFinite(days) && days > 0 ? days : 0
       };
     } catch {
-      return { confirmDelete: true, autoRenameDuplicates: true, autoRefreshQuota: true };
+      return { confirmDelete: true, autoRenameDuplicates: true, autoRefreshQuota: true, autoEmptyTrashDays: 0 };
     }
   });
 
@@ -341,6 +439,15 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
       }
       if (payload.autoRefreshQuota !== undefined) {
         setAppState('autoRefreshQuota', payload.autoRefreshQuota ? '1' : '0');
+      }
+      if (payload.autoEmptyTrashDays !== undefined) {
+        const days = Math.max(0, Math.floor(payload.autoEmptyTrashDays));
+        setAppState('autoEmptyTrashDays', days > 0 ? String(days) : '0');
+        if (days > 0) {
+          await ensureManifestLoaded();
+          const userId = getActiveUserId();
+          if (userId != null) sweepExpiredTrash(userId).catch(() => {});
+        }
       }
       return { success: true };
     } catch (e) {
@@ -386,15 +493,30 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
       const parentId = payload.parentFolderId ?? null;
 
       const autoRename = getAppState('autoRenameDuplicates') !== '0';
+      const dir = isDirectory(payload.filePath);
       let fileName = payload.fileName;
-      if (findDuplicateName(userId, fileName, parentId, false)) {
+      if (dir) {
+        if (findDuplicateName(userId, fileName, parentId, true)) {
+          if (!autoRename) {
+            return { duplicate: true, error: 'A folder with this name already exists here.' };
+          }
+          fileName = getUniqueName(userId, fileName, parentId, true);
+        }
+      } else if (findDuplicateName(userId, fileName, parentId, false)) {
         if (!autoRename) {
           return { duplicate: true, error: 'A file with this name already exists here.' };
         }
         fileName = getUniqueName(userId, fileName, parentId, false);
       }
 
-      uploadFile(userId, mainWindow, payload.filePath, fileName, parentId).catch(console.error);
+      logE2E('upload.request', { fileName, parentId, path: payload.filePath, isDirectory: dir });
+      const uploadPromise = dir
+        ? uploadFolder(userId, mainWindow, payload.filePath, parentId, fileName)
+        : uploadFile(userId, mainWindow, payload.filePath, fileName, parentId);
+      uploadPromise.catch(err => {
+        console.error(err);
+        logE2EError('upload.request.error', err, { fileName, path: payload.filePath });
+      });
       return {};
     } catch (e) {
       return { error: errorMessage(e) };
@@ -405,18 +527,23 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
     try {
       await ensureManifestLoaded();
       const userId = requireUserId();
-      downloadFile(userId, mainWindow, payload.fileId, payload.savePath).catch(console.error);
+      const target = getFile(payload.fileId, userId);
+      logE2E('download.request', { fileId: payload.fileId, name: target?.name, savePath: payload.savePath });
+      downloadFile(userId, mainWindow, payload.fileId, payload.savePath).catch(err => {
+        console.error(err);
+        logE2EError('download.request.error', err, { fileId: payload.fileId });
+      });
       return { success: true };
     } catch (e) {
       return { error: errorMessage(e) };
     }
   });
 
-  ipcMain.handle('file:pick', async () => {
+  const pickPath = async (title: string, properties: ('openFile' | 'openDirectory')[]) => {
     const { dialog } = require('electron');
     const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
-      title: 'Select File to Upload',
-      properties: ['openFile']
+      title,
+      properties
     });
     if (canceled || filePaths.length === 0) {
       return { filePath: null, fileName: null };
@@ -425,7 +552,11 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
     const filePath = filePaths[0];
     const fileName = path.basename(filePath);
     return { filePath, fileName };
-  });
+  };
+
+  ipcMain.handle('file:pick', async () => pickPath('Select File to Upload', ['openFile']));
+
+  ipcMain.handle('folder:pick', async () => pickPath('Select Folder to Upload', ['openDirectory']));
 
   ipcMain.handle('file:pick-download-path', async (_event: IpcMainInvokeEvent, fileName: string) => {
     const { dialog } = require('electron');

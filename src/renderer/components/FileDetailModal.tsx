@@ -251,9 +251,9 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({ file, onClose,
       <AnimatePresence>
         {confirmOpen && (
           <ConfirmDialog
-            title="Delete File"
-            message={<>Delete <span className="font-medium text-ink">“{displayName}”</span> from all connected drives? This cannot be undone.</>}
-            confirmLabel="Delete"
+            title="Move File to Trash?"
+            message={<>Move <span className="font-medium text-ink">“{displayName}”</span> to the trash? You can restore it later.</>}
+            confirmLabel="Move to Trash"
             checkboxLabel="Don't ask again"
             onConfirm={handleConfirmDelete}
             onCancel={handleCancelDelete}
