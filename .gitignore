@@ -39,6 +39,5 @@ logs/
 
 .freebuff/
 
-# NOTE: .agents/ is intentionally TRACKED (AGENTS.md, PRD.md, SESSION_STATE.md,
-# DESIGN.md, tasks/*.md task history, skills). Do NOT add it to .gitignore —
-# that would silently drop the task files.
+# Local-only workspace: session notes, task history, skills. Never pushed.
+.agents/
